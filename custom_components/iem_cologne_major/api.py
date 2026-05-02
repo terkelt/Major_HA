@@ -8,6 +8,7 @@ import hashlib
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
 from aiohttp import ClientResponseError
 from aiohttp import ClientSession
@@ -28,6 +29,13 @@ _MAIN_PAGE_CACHE_MINUTES = 3
 _DETAIL_PAGE_CACHE_MINUTES = 20
 _HLTV_CACHE_MINUTES = 10
 _LIQUIPEDIA_BACKOFF_MINUTES = 15
+
+_DEFAULT_STAGE_WINDOWS = [
+    {"name": "Stage 1", "start": "2026-06-02", "end": "2026-06-05"},
+    {"name": "Stage 2", "start": "2026-06-06", "end": "2026-06-09"},
+    {"name": "Stage 3", "start": "2026-06-11", "end": "2026-06-15"},
+    {"name": "Playoffs", "start": "2026-06-18", "end": "2026-06-21"},
+]
 
 
 @dataclass(slots=True)
@@ -133,10 +141,10 @@ class IEMCologneApiClient:
         }
             self._last_payload = payload
             return payload
-        except Exception:
+        except Exception as err:
             if self._last_payload is not None:
                 return self._build_fallback_payload(now)
-            raise
+            return await self._build_emergency_payload(now, str(err))
 
     async def _async_fetch_liquipedia_bundle(self, today: date) -> dict[str, Any]:
         html = await self._async_fetch_liquipedia_page_html(
@@ -193,10 +201,16 @@ class IEMCologneApiClient:
                 data = await resp.json()
         except ClientResponseError as err:
             if err.status == 429:
-                self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
-                if cached:
-                    _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
-                    return cached[1]
+                try:
+                    html = await self._async_fetch_liquipedia_page_render(page)
+                    self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
+                    _LOGGER.warning("Liquipedia API rate limited for page %s, using render fallback", page)
+                    return html
+                except Exception:
+                    self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
+                    if cached:
+                        _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
+                        return cached[1]
             raise
 
         if "parse" not in data or "text" not in data["parse"]:
@@ -206,6 +220,16 @@ class IEMCologneApiClient:
         self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
         self._liquipedia_backoff_until = None
         return html
+
+    async def _async_fetch_liquipedia_page_render(self, page: str) -> str:
+        encoded_page = quote(page, safe="/")
+        url = f"https://liquipedia.net/counterstrike/{encoded_page}?action=render"
+        headers = {
+            "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
+        }
+        async with self._session.get(url, headers=headers, timeout=20) as resp:
+            resp.raise_for_status()
+            return await resp.text()
 
     async def _async_fetch_liquipedia_score_lines(self, page: str) -> list[str]:
         try:
@@ -506,4 +530,58 @@ class IEMCologneApiClient:
         sources["liquipedia"] = liquipedia
         payload["sources"] = sources
         payload["updated_at"] = now.isoformat()
+        return payload
+
+    async def _build_emergency_payload(self, now: datetime, liquipedia_error: str) -> dict[str, Any]:
+        hltv_signal: dict[str, Any] = {
+            "enabled": self._include_hltv_signal,
+            "ok": False,
+            "error": "disabled",
+            "signal_lines": [],
+        }
+        if self._include_hltv_signal:
+            try:
+                hltv_signal = await self._async_fetch_hltv_signal("Unknown")
+            except Exception:
+                pass
+
+        score_lines = self._uniq(list(hltv_signal.get("signal_lines", [])))[:80]
+        score_change_detected = self._update_score_fingerprint(score_lines)
+        if score_change_detected:
+            self._last_score_change = now.isoformat()
+
+        payload = {
+            "updated_at": now.isoformat(),
+            "active_stage": self._detect_active_stage(now.date(), _DEFAULT_STAGE_WINDOWS),
+            "overview": {
+                "source_mode": "emergency",
+            },
+            "stage_windows": _DEFAULT_STAGE_WINDOWS,
+            "participants": {
+                "stage_1": [],
+                "stage_2": [],
+                "stage_3": [],
+            },
+            "upcoming_matches": [],
+            "live_matches": [],
+            "completed_matches": [{"name": line, "status": "finished"} for line in score_lines],
+            "next_match": None,
+            "matches_today": 0,
+            "score_change_detected": score_change_detected,
+            "last_score_change": self._last_score_change,
+            "score_signal_lines": score_lines,
+            "sources": {
+                "liquipedia": {
+                    "page": self._liquipedia_page,
+                    "ok": False,
+                    "error": liquipedia_error,
+                },
+                "hltv": {
+                    "enabled": hltv_signal.get("enabled", False),
+                    "ok": hltv_signal.get("ok", False),
+                    "error": hltv_signal.get("error"),
+                },
+            },
+        }
+        self._last_payload = payload
         return payload
