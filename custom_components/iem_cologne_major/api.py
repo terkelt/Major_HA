@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import hashlib
 import logging
 import re
 from typing import Any
 
+from aiohttp import ClientResponseError
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 
@@ -22,6 +23,11 @@ _STAGE_LINE_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _SCORE_TOKEN_RE = re.compile(r"\b\d{1,2}\s*[:\-]\s*\d{1,2}\b")
+
+_MAIN_PAGE_CACHE_MINUTES = 3
+_DETAIL_PAGE_CACHE_MINUTES = 20
+_HLTV_CACHE_MINUTES = 10
+_LIQUIPEDIA_BACKOFF_MINUTES = 15
 
 
 @dataclass(slots=True)
@@ -49,52 +55,57 @@ class IEMCologneApiClient:
         self._include_hltv_signal = include_hltv_signal
         self._last_scores_fingerprint: str | None = None
         self._last_score_change: str | None = None
+        self._last_payload: dict[str, Any] | None = None
+        self._page_cache: dict[str, tuple[datetime, str]] = {}
+        self._hltv_cache: tuple[datetime, dict[str, Any]] | None = None
+        self._liquipedia_backoff_until: datetime | None = None
 
     async def async_fetch_data(self) -> dict[str, Any]:
         """Fetch and merge data from Liquipedia and optional HLTV signal pages."""
-        liquipedia_data = await self._async_fetch_liquipedia_bundle()
-        hltv_signal: dict[str, Any] = {
-            "enabled": self._include_hltv_signal,
-            "ok": True,
-            "error": None,
-            "signal_lines": [],
-        }
-        if self._include_hltv_signal:
-            hltv_signal = await self._async_fetch_hltv_signal()
-
         now = datetime.now(UTC)
-        active_stage = self._detect_active_stage(now.date(), liquipedia_data.get("stage_windows", []))
+        try:
+            liquipedia_data = await self._async_fetch_liquipedia_bundle(now.date())
+            active_stage = self._detect_active_stage(now.date(), liquipedia_data.get("stage_windows", []))
 
-        upcoming_matches = liquipedia_data.get("upcoming_matches", [])
-        score_lines = list(liquipedia_data.get("score_signal_lines", []))
-        score_lines.extend(hltv_signal.get("signal_lines", []))
-        score_lines = self._uniq(score_lines)[:80]
-
-        completed_matches = [
-            {
-                "name": line,
-                "status": "finished",
+            hltv_signal: dict[str, Any] = {
+                "enabled": self._include_hltv_signal,
+                "ok": True,
+                "error": None,
+                "signal_lines": [],
             }
-            for line in score_lines
-        ]
+            if self._include_hltv_signal:
+                hltv_signal = await self._async_fetch_hltv_signal(active_stage)
 
-        score_change_detected = self._update_score_fingerprint(score_lines)
-        if score_change_detected:
-            self._last_score_change = now.isoformat()
+            upcoming_matches = liquipedia_data.get("upcoming_matches", [])
+            score_lines = list(liquipedia_data.get("score_signal_lines", []))
+            score_lines.extend(hltv_signal.get("signal_lines", []))
+            score_lines = self._uniq(score_lines)[:80]
 
-        upcoming_matches.sort(key=lambda m: m.get("begin_at") or "")
-        next_match = upcoming_matches[0] if upcoming_matches else None
+            completed_matches = [
+                {
+                    "name": line,
+                    "status": "finished",
+                }
+                for line in score_lines
+            ]
 
-        matches_today = 0
-        for match in upcoming_matches:
-            begin_at = self._safe_parse_datetime(match.get("begin_at"))
-            if begin_at and begin_at.date() == now.date():
-                matches_today += 1
+            score_change_detected = self._update_score_fingerprint(score_lines)
+            if score_change_detected:
+                self._last_score_change = now.isoformat()
 
-        if not self._include_finished_matches:
-            completed_matches = []
+            upcoming_matches.sort(key=lambda m: m.get("begin_at") or "")
+            next_match = upcoming_matches[0] if upcoming_matches else None
 
-        return {
+            matches_today = 0
+            for match in upcoming_matches:
+                begin_at = self._safe_parse_datetime(match.get("begin_at"))
+                if begin_at and begin_at.date() == now.date():
+                    matches_today += 1
+
+            if not self._include_finished_matches:
+                completed_matches = []
+
+            payload = {
             "updated_at": now.isoformat(),
             "active_stage": active_stage,
             "overview": liquipedia_data.get("overview", {}),
@@ -120,26 +131,51 @@ class IEMCologneApiClient:
                 },
             },
         }
+            self._last_payload = payload
+            return payload
+        except Exception:
+            if self._last_payload is not None:
+                return self._build_fallback_payload(now)
+            raise
 
-    async def _async_fetch_liquipedia_bundle(self) -> dict[str, Any]:
-        html = await self._async_fetch_liquipedia_page_html(self._liquipedia_page)
+    async def _async_fetch_liquipedia_bundle(self, today: date) -> dict[str, Any]:
+        html = await self._async_fetch_liquipedia_page_html(
+            self._liquipedia_page,
+            cache_minutes=_MAIN_PAGE_CACHE_MINUTES,
+        )
         soup = BeautifulSoup(html, "html.parser")
 
         overview = self._parse_infobox(soup)
         stage_windows = self._parse_stage_windows(soup)
         participants = self._parse_participants(soup)
         upcoming_matches = self._parse_upcoming_matches(soup)
-        score_signal_lines = await self._async_fetch_liquipedia_score_lines()
+        active_stage = self._detect_active_stage(today, stage_windows)
+        score_signal_lines = self._extract_score_lines(soup.get_text("\n", strip=True))
+
+        detail_page = self._stage_to_detail_page(active_stage)
+        if detail_page:
+            detail_lines = await self._async_fetch_liquipedia_score_lines(detail_page)
+            score_signal_lines.extend(detail_lines)
 
         return {
             "overview": overview,
             "stage_windows": stage_windows,
             "participants": participants,
             "upcoming_matches": upcoming_matches,
-            "score_signal_lines": score_signal_lines,
+            "score_signal_lines": self._uniq(score_signal_lines)[:60],
         }
 
-    async def _async_fetch_liquipedia_page_html(self, page: str) -> str:
+    async def _async_fetch_liquipedia_page_html(self, page: str, cache_minutes: int) -> str:
+        cached = self._page_cache.get(page)
+        now = datetime.now(UTC)
+        if cached and cached[0] > now:
+            return cached[1]
+
+        if self._liquipedia_backoff_until and now < self._liquipedia_backoff_until:
+            if cached:
+                return cached[1]
+            raise RuntimeError("Liquipedia temporarily rate limited")
+
         params = {
             "action": "parse",
             "page": page,
@@ -151,36 +187,44 @@ class IEMCologneApiClient:
             "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
         }
 
-        async with self._session.get(LIQUIPEDIA_API_URL, params=params, headers=headers, timeout=20) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        try:
+            async with self._session.get(LIQUIPEDIA_API_URL, params=params, headers=headers, timeout=20) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        except ClientResponseError as err:
+            if err.status == 429:
+                self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
+                if cached:
+                    _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
+                    return cached[1]
+            raise
 
         if "parse" not in data or "text" not in data["parse"]:
             raise ValueError("Liquipedia response did not contain parse text")
 
-        return data["parse"]["text"]
+        html = data["parse"]["text"]
+        self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
+        self._liquipedia_backoff_until = None
+        return html
 
-    async def _async_fetch_liquipedia_score_lines(self) -> list[str]:
-        pages = [
-            f"{self._liquipedia_page}/Stage_1",
-            f"{self._liquipedia_page}/Stage_2",
-            f"{self._liquipedia_page}/Stage_3",
-            f"{self._liquipedia_page}/Playoffs",
-        ]
-        lines: list[str] = []
-        for page in pages:
-            try:
-                html = await self._async_fetch_liquipedia_page_html(page)
-            except Exception:
-                continue
+    async def _async_fetch_liquipedia_score_lines(self, page: str) -> list[str]:
+        try:
+            html = await self._async_fetch_liquipedia_page_html(
+                page,
+                cache_minutes=_DETAIL_PAGE_CACHE_MINUTES,
+            )
+        except Exception:
+            return []
 
-            soup = BeautifulSoup(html, "html.parser")
-            text = soup.get_text("\n", strip=True)
-            lines.extend(self._extract_score_lines(text))
+        soup = BeautifulSoup(html, "html.parser")
+        text = soup.get_text("\n", strip=True)
+        return self._uniq(self._extract_score_lines(text))[:40]
 
-        return self._uniq(lines)[:60]
+    async def _async_fetch_hltv_signal(self, active_stage: str) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        if self._hltv_cache and self._hltv_cache[0] > now:
+            return self._hltv_cache[1]
 
-    async def _async_fetch_hltv_signal(self) -> dict[str, Any]:
         bundle: dict[str, Any] = {
             "enabled": True,
             "ok": True,
@@ -192,7 +236,7 @@ class IEMCologneApiClient:
             headers = {
                 "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
             }
-            for url in HLTV_EVENT_URLS:
+            for url in self._hltv_urls_for_stage(active_stage):
                 async with self._session.get(url, headers=headers, timeout=20) as resp:
                     resp.raise_for_status()
                     html = await resp.text()
@@ -202,11 +246,14 @@ class IEMCologneApiClient:
                 lines.extend(self._extract_score_lines(text))
 
             bundle["signal_lines"] = self._uniq(lines)[:40]
+            self._hltv_cache = (now + timedelta(minutes=_HLTV_CACHE_MINUTES), bundle)
             return bundle
         except Exception as err:
             _LOGGER.warning("HLTV signal fetch failed: %s", err)
             bundle["ok"] = False
             bundle["error"] = str(err)
+            if self._hltv_cache:
+                return self._hltv_cache[1]
             return bundle
 
     def _parse_infobox(self, soup: BeautifulSoup) -> dict[str, Any]:
@@ -431,3 +478,32 @@ class IEMCologneApiClient:
             seen.add(line)
             output.append(line)
         return output
+
+    def _stage_to_detail_page(self, active_stage: str) -> str | None:
+        mapping = {
+            "Stage 1": f"{self._liquipedia_page}/Stage_1",
+            "Stage 2": f"{self._liquipedia_page}/Stage_2",
+            "Stage 3": f"{self._liquipedia_page}/Stage_3",
+            "Playoffs": f"{self._liquipedia_page}/Playoffs",
+        }
+        return mapping.get(active_stage)
+
+    def _hltv_urls_for_stage(self, active_stage: str) -> list[str]:
+        stage_map = {
+            "Stage 1": [HLTV_EVENT_URLS[0]],
+            "Stage 2": [HLTV_EVENT_URLS[1]],
+            "Stage 3": [HLTV_EVENT_URLS[2]],
+            "Playoffs": [HLTV_EVENT_URLS[2]],
+        }
+        return stage_map.get(active_stage, [HLTV_EVENT_URLS[2]])
+
+    def _build_fallback_payload(self, now: datetime) -> dict[str, Any]:
+        payload = dict(self._last_payload or {})
+        sources = dict(payload.get("sources", {}))
+        liquipedia = dict(sources.get("liquipedia", {}))
+        liquipedia["ok"] = False
+        liquipedia["error"] = "Using cached data due to rate limiting"
+        sources["liquipedia"] = liquipedia
+        payload["sources"] = sources
+        payload["updated_at"] = now.isoformat()
+        return payload

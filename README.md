@@ -86,6 +86,6 @@ Enthalten sind drei Views:
 ## Hinweise
 
 - Diese Variante arbeitet bewusst **ohne Live-API**.
-- Stattdessen wird mit kurzem Polling-Intervall gearbeitet (empfohlen: 1-2 Minuten), damit neue Scores aus den Quellen schnell erkannt werden.
+- Stattdessen wird mit kurzem Polling-Intervall gearbeitet. Wegen Rate-Limits ist **5 Minuten** der sinnvolle Default; 1-2 Minuten sollten nur vorsichtig getestet werden.
 - HLTV wurde als Signalquelle beruecksichtigt, kann aber je nach Site-Layout/Consent-Banner weniger strukturierte Daten liefern als Liquipedia.
 - Die Integration ist als Community-Custom-Component gebaut.

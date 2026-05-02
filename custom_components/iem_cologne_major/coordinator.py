@@ -72,4 +72,7 @@ class IEMCologneDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             return await self.api.async_fetch_data()
         except Exception as err:
+            if self.data:
+                _LOGGER.warning("Using last known IEM Cologne data after update failure: %s", err)
+                return self.data
             raise UpdateFailed(f"Failed to update IEM Cologne data: {err}") from err
