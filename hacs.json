@@ -1,0 +1,10 @@
+{
+  "name": "IEM Cologne Major",
+  "content_in_root": false,
+  "domains": [
+    "iem_cologne_major"
+  ],
+  "homeassistant": "2024.1.0",
+  "render_readme": true,
+  "zip_release": false
+}

@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IEM Cologne Major",
+        "description": "Datenquellen fuer das IEM Cologne Major 2026 konfigurieren",
+        "data": {
+          "liquipedia_page": "Liquipedia-Seite",
+          "update_interval": "Aktualisierungsintervall (Minuten)",
+          "include_finished_matches": "Abgeschlossene Matches anzeigen",
+          "include_hltv_signal": "HLTV als Score-Signalquelle nutzen"
+        }
+      }
+    }
+  }
+}

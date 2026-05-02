@@ -1,0 +1,15 @@
+{
+  "domain": "iem_cologne_major",
+  "name": "IEM Cologne Major",
+  "version": "0.1.0",
+  "documentation": "https://github.com/your-user/iem-cologne-ha",
+  "issue_tracker": "https://github.com/your-user/iem-cologne-ha/issues",
+  "codeowners": [
+    "@you"
+  ],
+  "iot_class": "cloud_polling",
+  "config_flow": true,
+  "requirements": [
+    "beautifulsoup4==4.12.3"
+  ]
+}
