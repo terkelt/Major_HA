@@ -1,25 +1,54 @@
-title: Quellen
+title: Quellen & Diagnose
 path: iem-cologne-sources
-icon: mdi:database-search-outline
+icon: mdi:database-search
 cards:
   - type: markdown
-    title: Datenquellen
+    title: "Integration Status"
     content: |
-      **Primar:** Liquipedia Counter-Strike (MediaWiki API)
-      **Sekundar (Signal):** HLTV Eventseiten
-      Polling ist auf kurze Intervalle ausgelegt, um neue Scores schnell zu erkennen.
+      {% set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}) %}
+      {% set liq = d.get('liquipedia', {}) %}
+      {% set hltv = d.get('hltv', {}) %}
+      {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') %}
+
+      **Letztes Update:** {{ updated | default('unbekannt') }}
+
+      ### Liquipedia
+      - **Status:** {{ 'OK' if liq.get('ok') else 'FEHLER: ' + (liq.get('error') | string) }}
+      - **Seite:** {{ liq.get('page', '-') }}
+      - **Modus:** {{ liq.get('policy_mode', '-') }}
+
+      ### HLTV
+      - **Aktiviert:** {{ 'Ja' if hltv.get('enabled') else 'Nein' }}
+      - **Status:** {{ 'OK' if hltv.get('ok') else 'FEHLER: ' + (hltv.get('error') | string) }}
+      - **Genutzte URLs:** {{ hltv.get('used_urls', []) | join(', ') | default('keine') }}
+      - **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | join(', ') | default('keine') }}
+      - **Score-Signale erkannt:** {{ hltv.get('score_lines_detected', 0) }}
+      - **Bracket-Signale erkannt:** {{ hltv.get('bracket_lines_detected', 0) }}
 
   - type: markdown
-    title: Source State
+    title: "Turnierdaten-Quelle"
     content: |
-      {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
-      - Liquipedia OK: {{ src.liquipedia.ok if src.liquipedia is defined else 'n/a' }}
-      - Liquipedia Policy Mode: {{ src.liquipedia.policy_mode if src.liquipedia is defined else 'n/a' }}
-      - HLTV aktiviert: {{ src.hltv.enabled if src.hltv is defined else 'n/a' }}
-      - HLTV OK: {{ src.hltv.ok if src.hltv is defined else 'n/a' }}
-      - HLTV Fehler: {{ src.hltv.error if src.hltv is defined else 'n/a' }}
-      - HLTV Strict Filter: {{ src.hltv.strict_filter if src.hltv is defined else 'n/a' }}
-      - HLTV verwendete URLs: {{ (src.hltv.used_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
-      - HLTV verworfene URLs: {{ (src.hltv.dropped_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
-      - HLTV Teams erkannt: {{ src.hltv.teams_detected if src.hltv is defined else 'n/a' }}
-      - HLTV Bracket-Linien: {{ src.hltv.bracket_lines_detected if src.hltv is defined else 'n/a' }}
+      Die Turnierdaten (Teams, Stages, Termine) sind **fest im Code hinterlegt** und basieren
+      auf verifizierten Daten von HLTV und Liquipedia (Stand: Mai 2026).
+
+      **Teams Stage 1 (16):** Aus confirmed_participants in const.py
+      **Teams Stage 2 (8 Direct):** Aus confirmed_invites in const.py
+      **Teams Stage 3 (8 Direct):** Aus confirmed_invites in const.py
+
+      Live-Netzwerkabrufe werden **nur fuer Score-Signale** verwendet.
+
+  - type: entity
+    entity: sensor.iem_cologne_phase
+    name: Aktive Phase
+
+  - type: entity
+    entity: sensor.iem_cologne_participants
+    name: Teilnehmer gesamt
+
+  - type: entity
+    entity: sensor.iem_cologne_score_signals
+    name: Score-Signale
+
+  - type: entity
+    entity: sensor.iem_cologne_all_data
+    name: Alle Daten (Rohdaten)

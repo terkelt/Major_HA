@@ -1,0 +1,79 @@
+title: Ergebnisse
+path: iem-cologne-ergebnisse
+icon: mdi:podium
+cards:
+  - type: grid
+    square: false
+    columns: 2
+    cards:
+      - type: tile
+        entity: sensor.iem_cologne_phase
+        name: Aktive Phase
+        icon: mdi:tournament
+      - type: tile
+        entity: sensor.iem_cologne_last_score_change
+        name: Letzte Score-Aenderung
+        icon: mdi:clock-alert-outline
+
+  - type: markdown
+    title: "Score-Signale (Live)"
+    content: |
+      {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+      {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
+      {% if changed %}
+      **Neue Ergebnisse erkannt!**
+      {% endif %}
+      {% if lines | count == 0 %}
+      _Noch keine Score-Signale verfuegbar_
+      _Das Turnier beginnt am 2. Juni 2026_
+      {% else %}
+      **{{ lines | count }} Signale erkannt:**
+      {% for line in lines %}
+      - {{ line }}
+      {% endfor %}
+      {% endif %}
+
+  - type: markdown
+    title: "Bracket / Playoff-Signale"
+    content: |
+      {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([]) %}
+      {% if bracket | count == 0 %}
+      _Noch keine Bracket-Signale verfuegbar (Playoffs: 18.-21. Juni)_
+      {% else %}
+      {% for line in bracket %}
+      - {{ line }}
+      {% endfor %}
+      {% endif %}
+
+  - type: markdown
+    title: "Playoffs - Bracket-Struktur"
+    content: |
+      **Single Elimination | 8 Teams**
+
+      ```
+      Quarterfinal  Halbfinale    Grand Final
+      ------------------------------------------
+      QF1  ->
+               SF1 ->
+      QF2  ->          GF  ->  SIEGER
+               SF2 ->
+      QF3  ->
+               SF2 ->
+      QF4  ->
+      ```
+
+      Alle 8 Playoff-Teams werden nach Stage 3 (15. Juni) bekannt sein.
+      Playoff-Brackets: 18. Juni 2026
+
+  - type: markdown
+    title: "Preisgeldverteilung"
+    content: |
+      | Platz | Preisgeld |
+      |-------|-----------|
+      | 1. Platz | **500.000 USD** |
+      | 2. Platz | 170.000 USD |
+      | 3.-4. Platz | je 80.000 USD |
+      | 5.-8. Platz | je 45.000 USD |
+      | 9.-11. Platz | je 20.000 USD |
+      | 12.-16. Platz | je 20.000 USD |
+      | **Gesamt** | **1.250.000 USD** |

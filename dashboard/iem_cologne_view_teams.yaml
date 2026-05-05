@@ -1,0 +1,94 @@
+title: Teams & Stages
+path: iem-cologne-teams
+icon: mdi:account-group
+cards:
+  - type: markdown
+    content: |
+      ## IEM Cologne Major 2026 - Alle 32 Teams
+      Vollstaendige Teilnehmerliste nach Stages | Stand: Mai 2026
+
+  - type: markdown
+    title: "Stage 1 - Challengers Stage (2.-5. Juni)"
+    content: |
+      **16 Teams | Swiss-System Bo1 / Elimination Bo3 | 8 weiter zu Stage 2**
+
+      | # | Team | Region |
+      |---|------|--------|
+      | 1 | GamerLegion | Europa |
+      | 2 | B8 | Europa |
+      | 3 | HEROIC | Europa |
+      | 4 | BetBoom | Europa |
+      | 5 | BIG | Europa |
+      | 6 | M80 | Nordamerika |
+      | 7 | TYLOO | Asien |
+      | 8 | MIBR | Suedamerika |
+      | 9 | SINNERS | Europa |
+      | 10 | NRG | Nordamerika |
+      | 11 | Gaimin Gladiators | Europa |
+      | 12 | Liquid | Nordamerika |
+      | 13 | Lynn Vision | Asien |
+      | 14 | THUNDER dOWNUNDER | Ozeanien |
+      | 15 | FlyQuest | Nordamerika |
+      | 16 | Sharks | Suedamerika |
+
+  - type: markdown
+    title: "Stage 2 - Legends Stage (6.-9. Juni)"
+    content: |
+      **16 Teams | Swiss-System Bo1 / Elimination Bo3 | 8 weiter zu Stage 3**
+
+      **Direct Invites (8 Teams):**
+
+      | # | Team | Region |
+      |---|------|--------|
+      | 1 | FUT | Europa |
+      | 2 | Spirit | Europa |
+      | 3 | Astralis | Europa |
+      | 4 | G2 | Europa |
+      | 5 | Legacy | Suedamerika |
+      | 6 | Monte | Europa |
+      | 7 | 9z | Suedamerika |
+      | 8 | paiN | Suedamerika |
+
+      **+ 8 Teams via Stage 1** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+
+  - type: markdown
+    title: "Stage 3 - Champions Stage (11.-15. Juni)"
+    content: |
+      **16 Teams | Swiss-System Bo3 (keine Bo1) | 8 weiter zu Playoffs**
+
+      **Top Seeds - Direct Invites (8 Teams):**
+
+      | # | Team | World Ranking | Region |
+      |---|------|---------------|--------|
+      | 1 | Vitality | #1 | Europa |
+      | 2 | Natus Vincere | #2 | Europa |
+      | 3 | Falcons | #3 | Nahost |
+      | 4 | The MongolZ | #7 | Asien |
+      | 5 | PARIVISION | #8 | Europa |
+      | 6 | Aurora | #9 | Europa |
+      | 7 | FURIA | #10 | Suedamerika |
+      | 8 | MOUZ | #11 | Europa |
+
+      **+ 8 Teams via Stage 2** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+
+  - type: markdown
+    title: "Playoffs (18.-21. Juni)"
+    content: |
+      **8 Teams | Single Elimination | Halbfinale & Finale Bo3 / Grand Final Bo5**
+
+      | Platz | Preisgeld |
+      |-------|-----------|
+      | 1. Platz | 500.000 USD |
+      | 2. Platz | 170.000 USD |
+      | 3.-4. Platz | je 80.000 USD |
+      | 5.-8. Platz | je 45.000 USD |
+
+      **+ 8 Teams via Stage 3** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+
+  - type: markdown
+    title: "Turnierformat - Uebersicht"
+    content: |
+      **Swiss-System (Stage 1+2):** Bo1-Matches in den ersten Runden, Elimination/Advancement Matches als Bo3
+      **Swiss-System (Stage 3):** Alle Matches als Bo3, kein Bo1
+      **Playoffs:** Quarter- und Halbfinale Bo3, Grand Final Bo5
+      **Map Pool:** Dust2, Mirage, Inferno, Nuke, Overpass, Ancient, Anubis

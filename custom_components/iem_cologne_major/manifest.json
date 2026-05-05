@@ -1,7 +1,7 @@
 {
   "domain": "iem_cologne_major",
   "name": "IEM Cologne Major",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "documentation": "https://github.com/terkelt/Major_HA",
   "issue_tracker": "https://github.com/terkelt/Major_HA/issues",
   "codeowners": [

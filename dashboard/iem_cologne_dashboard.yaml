@@ -1,208 +1,380 @@
 title: IEM Cologne Major 2026
 views:
-  - title: Match Center
-    path: iem-cologne
-    cards:
-      - type: grid
-        square: false
-        columns: 2
-        cards:
-          - type: tile
-            entity: sensor.iem_cologne_phase
-            name: Aktive Phase
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_matches_today
-            name: Matches heute
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_score_signals
-            name: Score-Signale
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_participants
-            name: Teams gesamt
-            vertical: true
+  title: Match Center
+  path: iem-cologne
+  icon: mdi:trophy-outline
+  cards:
+    - type: markdown
+      content: |
+        ## IEM Cologne Major 2026
+        **ESL | LANXESS Arena, Cologne, Germany**
+        Preisgeld: **1.250.000 USD** | 32 Teams aus aller Welt
+  
+        | Stage 1 | Stage 2 | Stage 3 | Playoffs |
+        |:-------:|:-------:|:-------:|:--------:|
+        | 2.-5. Juni | 6.-9. Juni | 11.-15. Juni | 18.-21. Juni |
+        | Challengers | Legends | Champions | Finale |
+        | 16 Teams | 8+8 Teams | 8+8 Teams | 8 Teams |
+  
+    - type: grid
+      square: false
+      columns: 4
+      cards:
+        - type: tile
+          entity: sensor.iem_cologne_phase
+          name: Aktive Phase
+          vertical: true
+          icon: mdi:tournament
+        - type: tile
+          entity: sensor.iem_cologne_score_signals
+          name: Score-Signale
+          vertical: true
+          icon: mdi:scoreboard
+        - type: tile
+          entity: sensor.iem_cologne_matches_today
+          name: Matches heute
+          vertical: true
+          icon: mdi:calendar-today
+        - type: tile
+          entity: sensor.iem_cologne_last_score_change
+          name: Letzte Aenderung
+          vertical: true
+          icon: mdi:clock-alert-outline
+  
+    - type: markdown
+      title: "Stage 1 - Challengers (2.-5. Juni 2026)"
+      content: |
+        **Format:** Swiss Bo1 / Elimination Bo3 | **16 Teams - 8 kommen weiter**
+        {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([]) %}
+        {% if p | count > 0 %}
+        {{ p | join(' | ') }}
+        {% else %}
+        GamerLegion | B8 | HEROIC | BetBoom | BIG | M80 | TYLOO | MIBR |
+        SINNERS | NRG | Gaimin Gladiators | Liquid | Lynn Vision | THUNDER dOWNUNDER | FlyQuest | Sharks
+        {% endif %}
+  
+    - type: markdown
+      title: "Stage 2 - Legends (6.-9. Juni 2026)"
+      content: |
+        **Format:** Swiss Bo1 / Elimination Bo3 | **8 Direct + 8 via Stage 1 - 8 kommen weiter**
+  
+        **Direct Invites:**
+        {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([]) %}
+        {% if p | count > 0 %}
+        {{ p | join(' | ') }}
+        {% else %}
+        FUT | Spirit | Astralis | G2 | Legacy | Monte | 9z | paiN
+        {% endif %}
+  
+        + 8 x TBD (Aufsteiger Stage 1)
+  
+    - type: markdown
+      title: "Stage 3 + Playoffs - Champions (11.-21. Juni 2026)"
+      content: |
+        **Format:** Swiss Bo3 -> Single Elim. Bo3 / Grand Final Bo5 | **Preis: bis 500.000 USD**
+  
+        **Top Seeds (Direct Invites):**
+        {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([]) %}
+        {% if p | count > 0 %}
+        {{ p | join(' | ') }}
+        {% else %}
+        Vitality | Natus Vincere | Falcons | The MongolZ | PARIVISION | Aurora | FURIA | MOUZ
+        {% endif %}
+  
+        + 8 x TBD (Aufsteiger Stage 2) | Playoffs: 18.-21. Juni
+  
+    - type: markdown
+      title: "Map Pool"
+      content: |
+        Dust2 | Mirage | Inferno | Nuke | Overpass | Ancient | Anubis
+  
+    - type: markdown
+      title: "Live Score-Signale"
+      content: |
+        {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+        {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
+        {% if changed %}_Neue Signale erkannt!_{% endif %}
+        {% if lines | count == 0 %}
+        _Noch keine Score-Signale - Turnier beginnt am 2. Juni 2026_
+        {% else %}
+        {% for line in lines[:15] %}
+        - {{ line }}
+        {% endfor %}
+        {% if lines | count > 15 %}
+        _...und {{ lines | count - 15 }} weitere_
+        {% endif %}
+        {% endif %}
 
-      - type: entities
-        title: Update Tracking
-        entities:
-          - entity: sensor.iem_cologne_last_score_change
-          - entity: sensor.iem_cologne_next_match
-          - entity: sensor.iem_cologne_all_data
+  title: Teams & Stages
+  path: iem-cologne-teams
+  icon: mdi:account-group
+  cards:
+    - type: markdown
+      content: |
+        ## IEM Cologne Major 2026 - Alle 32 Teams
+        Vollstaendige Teilnehmerliste nach Stages | Stand: Mai 2026
+  
+    - type: markdown
+      title: "Stage 1 - Challengers Stage (2.-5. Juni)"
+      content: |
+        **16 Teams | Swiss-System Bo1 / Elimination Bo3 | 8 weiter zu Stage 2**
+  
+        | # | Team | Region |
+        |---|------|--------|
+        | 1 | GamerLegion | Europa |
+        | 2 | B8 | Europa |
+        | 3 | HEROIC | Europa |
+        | 4 | BetBoom | Europa |
+        | 5 | BIG | Europa |
+        | 6 | M80 | Nordamerika |
+        | 7 | TYLOO | Asien |
+        | 8 | MIBR | Suedamerika |
+        | 9 | SINNERS | Europa |
+        | 10 | NRG | Nordamerika |
+        | 11 | Gaimin Gladiators | Europa |
+        | 12 | Liquid | Nordamerika |
+        | 13 | Lynn Vision | Asien |
+        | 14 | THUNDER dOWNUNDER | Ozeanien |
+        | 15 | FlyQuest | Nordamerika |
+        | 16 | Sharks | Suedamerika |
+  
+    - type: markdown
+      title: "Stage 2 - Legends Stage (6.-9. Juni)"
+      content: |
+        **16 Teams | Swiss-System Bo1 / Elimination Bo3 | 8 weiter zu Stage 3**
+  
+        **Direct Invites (8 Teams):**
+  
+        | # | Team | Region |
+        |---|------|--------|
+        | 1 | FUT | Europa |
+        | 2 | Spirit | Europa |
+        | 3 | Astralis | Europa |
+        | 4 | G2 | Europa |
+        | 5 | Legacy | Suedamerika |
+        | 6 | Monte | Europa |
+        | 7 | 9z | Suedamerika |
+        | 8 | paiN | Suedamerika |
+  
+        **+ 8 Teams via Stage 1** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+  
+    - type: markdown
+      title: "Stage 3 - Champions Stage (11.-15. Juni)"
+      content: |
+        **16 Teams | Swiss-System Bo3 (keine Bo1) | 8 weiter zu Playoffs**
+  
+        **Top Seeds - Direct Invites (8 Teams):**
+  
+        | # | Team | World Ranking | Region |
+        |---|------|---------------|--------|
+        | 1 | Vitality | #1 | Europa |
+        | 2 | Natus Vincere | #2 | Europa |
+        | 3 | Falcons | #3 | Nahost |
+        | 4 | The MongolZ | #7 | Asien |
+        | 5 | PARIVISION | #8 | Europa |
+        | 6 | Aurora | #9 | Europa |
+        | 7 | FURIA | #10 | Suedamerika |
+        | 8 | MOUZ | #11 | Europa |
+  
+        **+ 8 Teams via Stage 2** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+  
+    - type: markdown
+      title: "Playoffs (18.-21. Juni)"
+      content: |
+        **8 Teams | Single Elimination | Halbfinale & Finale Bo3 / Grand Final Bo5**
+  
+        | Platz | Preisgeld |
+        |-------|-----------|
+        | 1. Platz | 500.000 USD |
+        | 2. Platz | 170.000 USD |
+        | 3.-4. Platz | je 80.000 USD |
+        | 5.-8. Platz | je 45.000 USD |
+  
+        **+ 8 Teams via Stage 3** (Top 8 Aufsteiger, werden waehrend des Turniers ermittelt)
+  
+    - type: markdown
+      title: "Turnierformat - Uebersicht"
+      content: |
+        **Swiss-System (Stage 1+2):** Bo1-Matches in den ersten Runden, Elimination/Advancement Matches als Bo3
+        **Swiss-System (Stage 3):** Alle Matches als Bo3, kein Bo1
+        **Playoffs:** Quarter- und Halbfinale Bo3, Grand Final Bo5
+        **Map Pool:** Dust2, Mirage, Inferno, Nuke, Overpass, Ancient, Anubis
 
-      - type: markdown
-        title: Datenmodus
-        content: |
-          {% set d = state_attr('sensor.iem_cologne_all_data', 'overview') or {} %}
-          {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
-          {% set liq_ok = src.liquipedia.ok if src.liquipedia is defined else false %}
-          {% set mode = d.source_mode if d.source_mode is defined else 'unknown' %}
-          {% if liq_ok %}
-          Vollmodus ({{ mode }}): Strukturdaten aktiv (Teams, Stage-Infos, Bracket-Signale)
-          {% else %}
-          Fallback-Modus ({{ mode }}): Liquipedia limitiert, Signal-/Cache-Daten aktiv
-          {% endif %}
+  title: Ergebnisse
+  path: iem-cologne-ergebnisse
+  icon: mdi:podium
+  cards:
+    - type: grid
+      square: false
+      columns: 2
+      cards:
+        - type: tile
+          entity: sensor.iem_cologne_phase
+          name: Aktive Phase
+          icon: mdi:tournament
+        - type: tile
+          entity: sensor.iem_cologne_last_score_change
+          name: Letzte Score-Aenderung
+          icon: mdi:clock-alert-outline
+  
+    - type: markdown
+      title: "Score-Signale (Live)"
+      content: |
+        {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+        {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
+        {% if changed %}
+        **Neue Ergebnisse erkannt!**
+        {% endif %}
+        {% if lines | count == 0 %}
+        _Noch keine Score-Signale verfuegbar_
+        _Das Turnier beginnt am 2. Juni 2026_
+        {% else %}
+        **{{ lines | count }} Signale erkannt:**
+        {% for line in lines %}
+        - {{ line }}
+        {% endfor %}
+        {% endif %}
+  
+    - type: markdown
+      title: "Bracket / Playoff-Signale"
+      content: |
+        {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([]) %}
+        {% if bracket | count == 0 %}
+        _Noch keine Bracket-Signale verfuegbar (Playoffs: 18.-21. Juni)_
+        {% else %}
+        {% for line in bracket %}
+        - {{ line }}
+        {% endfor %}
+        {% endif %}
+  
+    - type: markdown
+      title: "Playoffs - Bracket-Struktur"
+      content: |
+        **Single Elimination | 8 Teams**
+  
+        ```
+        Quarterfinal  Halbfinale    Grand Final
+        ------------------------------------------
+        QF1  ->
+                 SF1 ->
+        QF2  ->          GF  ->  SIEGER
+                 SF2 ->
+        QF3  ->
+                 SF2 ->
+        QF4  ->
+        ```
+  
+        Alle 8 Playoff-Teams werden nach Stage 3 (15. Juni) bekannt sein.
+        Playoff-Brackets: 18. Juni 2026
+  
+    - type: markdown
+      title: "Preisgeldverteilung"
+      content: |
+        | Platz | Preisgeld |
+        |-------|-----------|
+        | 1. Platz | **500.000 USD** |
+        | 2. Platz | 170.000 USD |
+        | 3.-4. Platz | je 80.000 USD |
+        | 5.-8. Platz | je 45.000 USD |
+        | 9.-11. Platz | je 20.000 USD |
+        | 12.-16. Platz | je 20.000 USD |
+        | **Gesamt** | **1.250.000 USD** |
 
-          HLTV Teams erkannt: {{ src.hltv.teams_detected if src.hltv is defined else 'n/a' }}
-          HLTV Bracket-Linien: {{ src.hltv.bracket_lines_detected if src.hltv is defined else 'n/a' }}
+  title: Quellen & Diagnose
+  path: iem-cologne-sources
+  icon: mdi:database-search
+  cards:
+    - type: markdown
+      title: "Integration Status"
+      content: |
+        {% set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}) %}
+        {% set liq = d.get('liquipedia', {}) %}
+        {% set hltv = d.get('hltv', {}) %}
+        {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') %}
+  
+        **Letztes Update:** {{ updated | default('unbekannt') }}
+  
+        ### Liquipedia
+        - **Status:** {{ 'OK' if liq.get('ok') else 'FEHLER: ' + (liq.get('error') | string) }}
+        - **Seite:** {{ liq.get('page', '-') }}
+        - **Modus:** {{ liq.get('policy_mode', '-') }}
+  
+        ### HLTV
+        - **Aktiviert:** {{ 'Ja' if hltv.get('enabled') else 'Nein' }}
+        - **Status:** {{ 'OK' if hltv.get('ok') else 'FEHLER: ' + (hltv.get('error') | string) }}
+        - **Genutzte URLs:** {{ hltv.get('used_urls', []) | join(', ') | default('keine') }}
+        - **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | join(', ') | default('keine') }}
+        - **Score-Signale erkannt:** {{ hltv.get('score_lines_detected', 0) }}
+        - **Bracket-Signale erkannt:** {{ hltv.get('bracket_lines_detected', 0) }}
+  
+    - type: markdown
+      title: "Turnierdaten-Quelle"
+      content: |
+        Die Turnierdaten (Teams, Stages, Termine) sind **fest im Code hinterlegt** und basieren
+        auf verifizierten Daten von HLTV und Liquipedia (Stand: Mai 2026).
+  
+        **Teams Stage 1 (16):** Aus confirmed_participants in const.py
+        **Teams Stage 2 (8 Direct):** Aus confirmed_invites in const.py
+        **Teams Stage 3 (8 Direct):** Aus confirmed_invites in const.py
+  
+        Live-Netzwerkabrufe werden **nur fuer Score-Signale** verwendet.
+  
+    - type: entity
+      entity: sensor.iem_cologne_phase
+      name: Aktive Phase
+  
+    - type: entity
+      entity: sensor.iem_cologne_participants
+      name: Teilnehmer gesamt
+  
+    - type: entity
+      entity: sensor.iem_cologne_score_signals
+      name: Score-Signale
+  
+    - type: entity
+      entity: sensor.iem_cologne_all_data
+      name: Alle Daten (Rohdaten)
 
-      - type: gauge
-        entity: sensor.iem_cologne_score_signals
-        min: 0
-        max: 40
-        severity:
-          green: 1
-          yellow: 8
-          red: 18
-        name: Score-Signal Dichte
-
-      - type: markdown
-        title: Naechstes Match
-        content: |
-          {% set m = state_attr('sensor.iem_cologne_next_match', 'next_match') %}
-          {% if m %}
-          **{{ m.name or 'N/A' }}**  
-          Status: {{ m.status }}  
-          Start: {{ m.begin_at }}  
-          Teams: {{ (m.opponents or []) | join(' vs ') }}
-          {% else %}
-          Kein naechstes Match verfuegbar.
-          {% endif %}
-
-      - type: markdown
-        title: Juengste Score-Signale
-        content: |
-          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') or [] %}
-          {% if lines | count == 0 %}
-          Noch keine Score-Signale erkannt.
-          {% else %}
-          {% for line in lines[:20] %}
-          - {{ line }}
-          {% endfor %}
-          {% endif %}
-
-      - type: markdown
-        title: Stage Teams
-        content: |
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') or [] %}
-          ### Stage 1 ({{ p | count }})
-          {{ p | join(', ') if p else 'N/A' }}
-
-          {% set p2 = state_attr('sensor.iem_cologne_participants', 'stage_2') or [] %}
-          ### Stage 2 ({{ p2 | count }})
-          {{ p2 | join(', ') if p2 else 'N/A' }}
-
-          {% set p3 = state_attr('sensor.iem_cologne_participants', 'stage_3') or [] %}
-          ### Stage 3 ({{ p3 | count }})
-          {{ p3 | join(', ') if p3 else 'N/A' }}
-
-      - type: markdown
-        title: Team Roster (Auszug)
-        content: |
-          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') or {} %}
-          {% if rosters | count == 0 %}
-          Keine Roster-Daten verfuegbar (Quelle aktuell im Fallback oder noch nicht erkannt).
-          {% else %}
-          {% for team, players in rosters.items() %}
-          **{{ team }}**: {{ players | join(', ') if players else 'N/A' }}
-          {% endfor %}
-          {% endif %}
-
-      - type: markdown
-        title: Bracket / Playoffs Signale
-        content: |
-          {% set lines = state_attr('sensor.iem_cologne_participants', 'bracket_lines') or [] %}
-          {% if lines | count == 0 %}
-          Aktuell keine Bracket-Linien erkannt.
-          {% else %}
-          {% for line in lines[:16] %}
-          - {{ line }}
-          {% endfor %}
-          {% endif %}
-
-  - title: Quellen
-    path: iem-cologne-sources
-    cards:
-      - type: markdown
-        title: Datenquellen
-        content: |
-          **Primar:** Liquipedia Counter-Strike (MediaWiki API)  
-          **Sekundar (Signal):** HLTV Eventseiten  
-          Polling ist auf kurze Intervalle ausgelegt, um neue Scores schnell zu erkennen.
-
-      - type: markdown
-        title: Source State
-        content: |
-          {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
-          - Liquipedia OK: {{ src.liquipedia.ok if src.liquipedia is defined else 'n/a' }}
-          - Liquipedia Policy Mode: {{ src.liquipedia.policy_mode if src.liquipedia is defined else 'n/a' }}
-          - HLTV aktiviert: {{ src.hltv.enabled if src.hltv is defined else 'n/a' }}
-          - HLTV OK: {{ src.hltv.ok if src.hltv is defined else 'n/a' }}
-          - HLTV Fehler: {{ src.hltv.error if src.hltv is defined else 'n/a' }}
-          - HLTV Strict Filter: {{ src.hltv.strict_filter if src.hltv is defined else 'n/a' }}
-          - HLTV verwendete URLs: {{ (src.hltv.used_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
-          - HLTV verworfene URLs: {{ (src.hltv.dropped_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
-
-  - title: Mobile
-    path: iem-cologne-mobile
-    cards:
-      - type: vertical-stack
-        cards:
-          - type: heading
-            heading: IEM Cologne Mobile Center
-
-          - type: grid
-            square: false
-            columns: 2
-            cards:
-              - type: tile
-                entity: sensor.iem_cologne_phase
-                name: Phase
-                vertical: true
-              - type: tile
-                entity: sensor.iem_cologne_matches_today
-                name: Heute
-                vertical: true
-              - type: tile
-                entity: sensor.iem_cologne_score_signals
-                name: Scores
-                vertical: true
-              - type: tile
-                entity: sensor.iem_cologne_last_score_change
-                name: Letzte Aenderung
-                vertical: true
-
-          - type: entities
-            title: Schnellstatus
-            show_header_toggle: false
-            entities:
-              - entity: sensor.iem_cologne_next_match
-              - entity: sensor.iem_cologne_participants
-              - entity: sensor.iem_cologne_all_data
-
-          - type: markdown
-            title: Next Up
-            content: |
-              {% set m = state_attr('sensor.iem_cologne_next_match', 'next_match') %}
-              {% if m %}
-              **{{ m.name or 'N/A' }}**
-
-              {{ (m.opponents or []) | join(' vs ') }}
-
-              Start: {{ m.begin_at or 'n/a' }}
-              {% else %}
-              Kein naechstes Match verfuegbar.
-              {% endif %}
-
-          - type: markdown
-            title: Score Feed (Top 8)
-            content: |
-              {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') or [] %}
-              {% if lines | count == 0 %}
-              Keine Score-Signale vorhanden.
-              {% else %}
-              {% for line in lines[:8] %}
-              - {{ line }}
-              {% endfor %}
-              {% endif %}
+  title: Mobile
+  path: iem-cologne-mobile
+  icon: mdi:cellphone
+  cards:
+    - type: markdown
+      content: |
+        ## IEM Cologne Major 2026
+        LANXESS Arena, Cologne | 1.250.000 USD
+  
+    - type: grid
+      square: false
+      columns: 2
+      cards:
+        - type: tile
+          entity: sensor.iem_cologne_phase
+          name: Phase
+          vertical: true
+        - type: tile
+          entity: sensor.iem_cologne_score_signals
+          name: Signale
+          vertical: true
+  
+    - type: markdown
+      title: "Score-Feed"
+      content: |
+        {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+        {% if lines | count == 0 %}
+        _Keine Signale - Start: 2. Juni 2026_
+        {% else %}
+        {% for line in lines[:8] %}
+        - {{ line }}
+        {% endfor %}
+        {% endif %}
+  
+    - type: markdown
+      title: "Teams (Kurzuebersicht)"
+      content: |
+        **Stage 1 (16):** GamerLegion, B8, HEROIC, BetBoom, BIG, M80, TYLOO, MIBR,
+        SINNERS, NRG, Gaimin Gladiators, Liquid, Lynn Vision, THUNDER dOWNUNDER, FlyQuest, Sharks
+  
+        **Stage 2 (8 direct):** FUT, Spirit, Astralis, G2, Legacy, Monte, 9z, paiN
+  
+        **Stage 3 (8 direct):** Vitality, NaVi, Falcons, The MongolZ, PARIVISION, Aurora, FURIA, MOUZ

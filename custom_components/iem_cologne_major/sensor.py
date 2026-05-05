@@ -33,7 +33,8 @@ SENSOR_DESCRIPTIONS: tuple[IEMCologneSensorDescription, ...] = (
         value_fn=lambda data: data.get("active_stage", "Unknown"),
         attrs_fn=lambda data: {
             "stage_windows": data.get("stage_windows", []),
-            "overview": data.get("overview", {}),
+            "tournament": data.get("tournament", {}),
+            "stage_info": data.get("stage_info", {}),
         },
     ),
     IEMCologneSensorDescription(

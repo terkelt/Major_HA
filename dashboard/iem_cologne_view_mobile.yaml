@@ -2,62 +2,42 @@ title: Mobile
 path: iem-cologne-mobile
 icon: mdi:cellphone
 cards:
-  - type: vertical-stack
+  - type: markdown
+    content: |
+      ## IEM Cologne Major 2026
+      LANXESS Arena, Cologne | 1.250.000 USD
+
+  - type: grid
+    square: false
+    columns: 2
     cards:
-      - type: heading
-        heading: IEM Cologne Mobile Center
+      - type: tile
+        entity: sensor.iem_cologne_phase
+        name: Phase
+        vertical: true
+      - type: tile
+        entity: sensor.iem_cologne_score_signals
+        name: Signale
+        vertical: true
 
-      - type: grid
-        square: false
-        columns: 2
-        cards:
-          - type: tile
-            entity: sensor.iem_cologne_phase
-            name: Phase
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_matches_today
-            name: Heute
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_score_signals
-            name: Scores
-            vertical: true
-          - type: tile
-            entity: sensor.iem_cologne_last_score_change
-            name: Letzte Aenderung
-            vertical: true
+  - type: markdown
+    title: "Score-Feed"
+    content: |
+      {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+      {% if lines | count == 0 %}
+      _Keine Signale - Start: 2. Juni 2026_
+      {% else %}
+      {% for line in lines[:8] %}
+      - {{ line }}
+      {% endfor %}
+      {% endif %}
 
-      - type: entities
-        title: Schnellstatus
-        show_header_toggle: false
-        entities:
-          - entity: sensor.iem_cologne_next_match
-          - entity: sensor.iem_cologne_participants
-          - entity: sensor.iem_cologne_all_data
+  - type: markdown
+    title: "Teams (Kurzuebersicht)"
+    content: |
+      **Stage 1 (16):** GamerLegion, B8, HEROIC, BetBoom, BIG, M80, TYLOO, MIBR,
+      SINNERS, NRG, Gaimin Gladiators, Liquid, Lynn Vision, THUNDER dOWNUNDER, FlyQuest, Sharks
 
-      - type: markdown
-        title: Next Up
-        content: |
-          {% set m = state_attr('sensor.iem_cologne_next_match', 'next_match') %}
-          {% if m %}
-          **{{ m.name or 'N/A' }}**
+      **Stage 2 (8 direct):** FUT, Spirit, Astralis, G2, Legacy, Monte, 9z, paiN
 
-          {{ (m.opponents or []) | join(' vs ') }}
-
-          Start: {{ m.begin_at or 'n/a' }}
-          {% else %}
-          Kein naechstes Match verfuegbar.
-          {% endif %}
-
-      - type: markdown
-        title: Score Feed (Top 8)
-        content: |
-          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') or [] %}
-          {% if lines | count == 0 %}
-          Keine Score-Signale vorhanden.
-          {% else %}
-          {% for line in lines[:8] %}
-          - {{ line }}
-          {% endfor %}
-          {% endif %}
+      **Stage 3 (8 direct):** Vitality, NaVi, Falcons, The MongolZ, PARIVISION, Aurora, FURIA, MOUZ

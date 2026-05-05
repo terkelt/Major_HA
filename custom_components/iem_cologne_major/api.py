@@ -1,62 +1,75 @@
-"""API client for IEM Cologne Major data."""
+"""API client for IEM Cologne Major 2026 – hardcoded base + live signals."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import hashlib
 import logging
 import re
 from typing import Any
 
-from aiohttp import ClientResponseError
-from aiohttp import ClientSession
+from aiohttp import ClientResponseError, ClientSession
 from bs4 import BeautifulSoup
 
-from .const import HLTV_EVENT_URLS, LIQUIPEDIA_API_URL
+from .const import HLTV_EVENT_URLS, LIQUIPEDIA_API_URL, TOURNAMENT_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
-_ORDINAL_RE = re.compile(r"(\d+)(st|nd|rd|th)")
-_STAGE_LINE_RE = re.compile(
-    r"^(Stage\s+[123]|Playoffs):\s+(.+?)\s+-\s+(.+?),\s*(\d{4})$",
-    flags=re.IGNORECASE,
-)
+# Regex patterns
 _SCORE_TOKEN_RE = re.compile(r"\b\d{1,2}\s*[:\-]\s*\d{1,2}\b")
-_HLTV_TEAM_HREF_RE = re.compile(r"^/team/\d+/")
-_ROSTER_LINE_RE = re.compile(r"^([1-5SC])\s+.+\s+([^\s]+)$")
-_DATE_LIKE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-_COLOGNE_EVENT_KEYWORDS = ("iem cologne major 2026", "cologne, germany")
-_BLOCKED_EVENT_KEYWORDS = ("iem atlanta", "atlanta")
-_SKIP_TEAM_NAMES = {"edit", "tbd"}
+_DATE_LIKE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s+\w{3,9}\s+\d{4}\b")
+_BARE_SCORE_RE = re.compile(r"^\s*\d{1,2}\s*[:\-]\s*\d{1,2}\s*$")
 
-_MAIN_PAGE_CACHE_MINUTES = 3
+# Caching / backoff durations
+_MAIN_PAGE_CACHE_MINUTES = 5
 _HLTV_CACHE_MINUTES = 10
-_LIQUIPEDIA_BACKOFF_MINUTES = 15
+_LIQUIPEDIA_BACKOFF_MINUTES = 20
+
+# Liquipedia API compliant User-Agent (see liquipedia.net/api-terms-of-use)
 _LIQUIPEDIA_USER_AGENT = (
-    "IEMCologneMajorHA/0.1 "
+    "IEMCologneMajorHA/0.2 "
     "(https://github.com/terkelt/Major_HA/issues; community integration)"
 )
 
-_DEFAULT_STAGE_WINDOWS = [
-    {"name": "Stage 1", "start": "2026-06-02", "end": "2026-06-05"},
-    {"name": "Stage 2", "start": "2026-06-06", "end": "2026-06-09"},
-    {"name": "Stage 3", "start": "2026-06-11", "end": "2026-06-15"},
-    {"name": "Playoffs", "start": "2026-06-18", "end": "2026-06-21"},
+# Stage windows derived from TOURNAMENT_BASE (ordered: stage_1 -> playoffs)
+_STAGE_WINDOWS: list[dict[str, str]] = [
+    {
+        "name": v["short"],
+        "start": v["start"],
+        "end": v["end"],
+    }
+    for v in TOURNAMENT_BASE["stages"].values()
 ]
 
+# All known participant team names (for live-signal validation)
+_ALL_TEAMS: frozenset[str] = frozenset(
+    TOURNAMENT_BASE["stages"]["stage_1"]["participants"]
+    + TOURNAMENT_BASE["stages"]["stage_2"]["direct_invites"]
+    + TOURNAMENT_BASE["stages"]["stage_3"]["direct_invites"]
+)
 
-@dataclass(slots=True)
-class ParsedStageWindow:
-    """Date range for a tournament stage."""
+# Keywords that indicate bracket / playoff context
+_BRACKET_KEYWORDS = (
+    "grand final", "upper final", "lower final",
+    "semifinal", "semi-final", "quarterfinal", "quarter-final",
+    "upper bracket", "lower bracket",
+)
 
-    name: str
-    start: date
-    end: date
+# Noise keywords that indicate a line is NOT a score signal
+_NOISE_KEYWORDS = (
+    "cookie", "privacy", "http", "edit", "viewer", "follow",
+    "subscribe", "highlight", "vod", "replay", "stream", "twitch",
+    "youtube", "twitter", "reddit",
+)
 
 
 class IEMCologneApiClient:
-    """Fetches tournament data from source pages with fast polling."""
+    """Fetches live signals for IEM Cologne Major 2026.
+
+    Tournament structure (teams, stages, dates) is always sourced from
+    TOURNAMENT_BASE in const.py.  Live network calls are used only for
+    match result signals.
+    """
 
     def __init__(
         self,
@@ -69,6 +82,7 @@ class IEMCologneApiClient:
         self._liquipedia_page = liquipedia_page
         self._include_finished_matches = include_finished_matches
         self._include_hltv_signal = include_hltv_signal
+
         self._last_scores_fingerprint: str | None = None
         self._last_score_change: str | None = None
         self._last_payload: dict[str, Any] | None = None
@@ -76,143 +90,157 @@ class IEMCologneApiClient:
         self._hltv_cache: tuple[datetime, dict[str, Any]] | None = None
         self._liquipedia_backoff_until: datetime | None = None
 
+    # ------------------------------------------------------------------ #
+    #  Public interface                                                    #
+    # ------------------------------------------------------------------ #
+
     async def async_fetch_data(self) -> dict[str, Any]:
-        """Fetch and merge data from Liquipedia and optional HLTV signal pages."""
+        """Build payload: hardcoded tournament data + live score signals."""
         now = datetime.now(UTC)
+        today = now.date()
+        active_stage = self._detect_active_stage(today)
+
+        # --- Hardcoded authoritative teams (never wrong) ----------------
+        participants: dict[str, list[str]] = {
+            "stage_1": list(TOURNAMENT_BASE["stages"]["stage_1"]["participants"]),
+            "stage_2": list(TOURNAMENT_BASE["stages"]["stage_2"]["direct_invites"]),
+            "stage_3": list(TOURNAMENT_BASE["stages"]["stage_3"]["direct_invites"]),
+        }
+
+        # --- Live score signals -----------------------------------------
+        score_lines: list[str] = []
+        bracket_lines: list[str] = []
+
+        liq_ok = True
+        liq_error: str | None = None
         try:
-            liquipedia_data = await self._async_fetch_liquipedia_bundle(now.date())
-            active_stage = self._detect_active_stage(now.date(), liquipedia_data.get("stage_windows", []))
+            liq = await self._async_fetch_liquipedia_signals()
+            score_lines.extend(liq.get("score_lines", []))
+            bracket_lines.extend(liq.get("bracket_lines", []))
+        except Exception as exc:
+            liq_ok = False
+            liq_error = str(exc)
+            _LOGGER.warning("Liquipedia fetch failed: %s", exc)
 
-            hltv_signal: dict[str, Any] = {
-                "enabled": self._include_hltv_signal,
-                "ok": True,
-                "error": None,
-                "signal_lines": [],
-                "bracket_lines": [],
-                "teams": [],
-            }
-            if self._include_hltv_signal:
-                hltv_signal = await self._async_fetch_hltv_signal(active_stage)
+        hltv_ok = True
+        hltv_error: str | None = None
+        hltv_used: list[str] = []
+        hltv_dropped: list[str] = []
+        if self._include_hltv_signal:
+            hltv = await self._async_fetch_hltv_signals(active_stage)
+            hltv_ok = hltv.get("ok", False)
+            hltv_error = hltv.get("error")
+            hltv_used = hltv.get("used_urls", [])
+            hltv_dropped = hltv.get("dropped_urls", [])
+            score_lines.extend(hltv.get("score_lines", []))
+            bracket_lines.extend(hltv.get("bracket_lines", []))
 
-            upcoming_matches = liquipedia_data.get("upcoming_matches", [])
-            participants = liquipedia_data.get("participants", {})
-            if self._participants_count(participants) == 0 and hltv_signal.get("teams"):
-                participants = self._participants_from_fallback_teams(hltv_signal.get("teams", []))
-            participants = self._sanitize_participants(participants)
+        score_lines = self._uniq(score_lines)[:60]
+        bracket_lines = self._uniq(bracket_lines)[:24]
 
-            bracket_lines = list(liquipedia_data.get("bracket_lines", []))
-            bracket_lines.extend(hltv_signal.get("bracket_lines", []))
-            bracket_lines = self._sanitize_bracket_lines(bracket_lines)
-            bracket_lines = self._uniq(bracket_lines)[:32]
+        # --- Change detection -------------------------------------------
+        score_changed = self._update_score_fingerprint(score_lines)
+        if score_changed:
+            self._last_score_change = now.isoformat()
 
-            score_lines = list(liquipedia_data.get("score_signal_lines", []))
-            score_lines.extend(hltv_signal.get("signal_lines", []))
-            score_lines = self._sanitize_score_lines(score_lines)
-            score_lines = self._uniq(score_lines)[:80]
-
-            completed_matches = [
-                {
-                    "name": line,
-                    "status": "finished",
+        # --- Build payload ----------------------------------------------
+        payload: dict[str, Any] = {
+            "updated_at": now.isoformat(),
+            "active_stage": active_stage,
+            # Authoritative tournament info (hardcoded)
+            "tournament": {
+                "name": TOURNAMENT_BASE["name"],
+                "organizer": TOURNAMENT_BASE["organizer"],
+                "location": TOURNAMENT_BASE["location"],
+                "venue": TOURNAMENT_BASE["venue"],
+                "prize_pool": TOURNAMENT_BASE["prize_pool"],
+                "map_pool": TOURNAMENT_BASE["map_pool"],
+            },
+            "stage_windows": _STAGE_WINDOWS,
+            "stage_info": {
+                k: {
+                    "name": v["name"],
+                    "short": v["short"],
+                    "start": v["start"],
+                    "end": v["end"],
+                    "format": v["format"],
+                    "prize": v.get("prize", ""),
                 }
-                for line in score_lines
-            ]
-
-            score_change_detected = self._update_score_fingerprint(score_lines)
-            if score_change_detected:
-                self._last_score_change = now.isoformat()
-
-            upcoming_matches.sort(key=lambda m: m.get("begin_at") or "")
-            next_match = upcoming_matches[0] if upcoming_matches else None
-
-            matches_today = 0
-            for match in upcoming_matches:
-                begin_at = self._safe_parse_datetime(match.get("begin_at"))
-                if begin_at and begin_at.date() == now.date():
-                    matches_today += 1
-
-            if not self._include_finished_matches:
-                completed_matches = []
-
-            payload = {
-                "updated_at": now.isoformat(),
-                "active_stage": active_stage,
-                "overview": {
-                    **liquipedia_data.get("overview", {}),
-                    "source_mode": "full" if liquipedia_data.get("participants") else "degraded",
+                for k, v in TOURNAMENT_BASE["stages"].items()
+            },
+            "participants": participants,
+            "team_rosters": {},
+            # Live signals
+            "score_signal_lines": score_lines,
+            "bracket_lines": bracket_lines,
+            # Match state
+            "upcoming_matches": [],
+            "live_matches": [],
+            "completed_matches": [],
+            "next_match": None,
+            "matches_today": 0,
+            # Change detection
+            "score_change_detected": score_changed,
+            "last_score_change": self._last_score_change,
+            # Source diagnostics
+            "sources": {
+                "liquipedia": {
+                    "page": self._liquipedia_page,
+                    "ok": liq_ok,
+                    "error": liq_error,
+                    "policy_mode": "mediawiki_api_only",
                 },
-                "stage_windows": liquipedia_data.get("stage_windows", []),
-                "participants": participants,
-                "team_rosters": liquipedia_data.get("team_rosters", {}),
-                "bracket_lines": bracket_lines,
-                "upcoming_matches": upcoming_matches,
-                "live_matches": [],
-                "completed_matches": completed_matches,
-                "next_match": next_match,
-                "matches_today": matches_today,
-                "score_change_detected": score_change_detected,
-                "last_score_change": self._last_score_change,
-                "score_signal_lines": score_lines,
-                "sources": {
-                    "liquipedia": {
-                        "page": self._liquipedia_page,
-                        "ok": True,
-                        "policy_mode": "mediawiki_api_only",
-                    },
-                    "hltv": {
-                        "enabled": hltv_signal.get("enabled", False),
-                        "ok": hltv_signal.get("ok", False),
-                        "error": hltv_signal.get("error"),
-                        "strict_filter": hltv_signal.get("strict_filter", True),
-                        "used_urls": hltv_signal.get("used_urls", []),
-                        "dropped_urls": hltv_signal.get("dropped_urls", []),
-                        "teams_detected": len(hltv_signal.get("teams", [])),
-                        "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
-                    },
+                "hltv": {
+                    "enabled": self._include_hltv_signal,
+                    "ok": hltv_ok,
+                    "error": hltv_error,
+                    "used_urls": hltv_used,
+                    "dropped_urls": hltv_dropped,
+                    "score_lines_detected": len(score_lines),
+                    "bracket_lines_detected": len(bracket_lines),
                 },
-            }
-            self._last_payload = payload
-            return payload
-        except Exception as err:
-            if self._last_payload is not None:
-                return self._build_fallback_payload(now)
-            return await self._build_emergency_payload(now, str(err))
+            },
+        }
+        self._last_payload = payload
+        return payload
 
-    async def _async_fetch_liquipedia_bundle(self, today: date) -> dict[str, Any]:
+    # ------------------------------------------------------------------ #
+    #  Liquipedia                                                          #
+    # ------------------------------------------------------------------ #
+
+    async def _async_fetch_liquipedia_signals(self) -> dict[str, Any]:
+        """Single Liquipedia API call -> extract team-validated signal lines."""
         html = await self._async_fetch_liquipedia_page_html(
             self._liquipedia_page,
             cache_minutes=_MAIN_PAGE_CACHE_MINUTES,
         )
         soup = BeautifulSoup(html, "html.parser")
-
-        overview = self._parse_infobox(soup)
-        stage_windows = self._parse_stage_windows(soup)
-        participants = self._parse_participants(soup)
-        team_rosters = self._parse_team_rosters(soup, participants)
-        upcoming_matches = self._parse_upcoming_matches(soup)
-        score_signal_lines = self._extract_score_lines(soup.get_text("\n", strip=True))
-        bracket_lines = self._collect_bracket_lines(soup.get_text("\n", strip=True))
-
+        text = soup.get_text("\n", strip=True)
         return {
-            "overview": overview,
-            "stage_windows": stage_windows,
-            "participants": participants,
-            "team_rosters": team_rosters,
-            "bracket_lines": bracket_lines,
-            "upcoming_matches": upcoming_matches,
-            "score_signal_lines": self._uniq(score_signal_lines)[:60],
+            "score_lines": self._uniq(self._extract_score_lines(text))[:40],
+            "bracket_lines": self._uniq(self._extract_bracket_lines(text))[:20],
         }
 
-    async def _async_fetch_liquipedia_page_html(self, page: str, cache_minutes: int) -> str:
+    async def _async_fetch_liquipedia_page_html(
+        self, page: str, cache_minutes: int
+    ) -> str:
+        """Fetch a Liquipedia MediaWiki API parse result with caching."""
         cached = self._page_cache.get(page)
         now = datetime.now(UTC)
+
         if cached and cached[0] > now:
             return cached[1]
 
-        if self._liquipedia_backoff_until and now < self._liquipedia_backoff_until:
+        if (
+            self._liquipedia_backoff_until
+            and now < self._liquipedia_backoff_until
+        ):
             if cached:
+                _LOGGER.debug("Liquipedia backoff active, returning cache for %s", page)
                 return cached[1]
-            raise RuntimeError("Liquipedia temporarily rate limited")
+            raise RuntimeError(
+                "Liquipedia temporarily rate-limited, no cache available"
+            )
 
         params = {
             "action": "parse",
@@ -221,595 +249,201 @@ class IEMCologneApiClient:
             "format": "json",
             "formatversion": 2,
         }
-        headers = {
-            "User-Agent": _LIQUIPEDIA_USER_AGENT,
-        }
+        headers = {"User-Agent": _LIQUIPEDIA_USER_AGENT}
 
         try:
-            async with self._session.get(LIQUIPEDIA_API_URL, params=params, headers=headers, timeout=20) as resp:
+            async with self._session.get(
+                LIQUIPEDIA_API_URL,
+                params=params,
+                headers=headers,
+                timeout=20,
+            ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
         except ClientResponseError as err:
             if err.status == 429:
-                self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
+                self._liquipedia_backoff_until = now + timedelta(
+                    minutes=_LIQUIPEDIA_BACKOFF_MINUTES
+                )
                 if cached:
-                    _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
+                    _LOGGER.warning(
+                        "Liquipedia 429 rate-limited, using cache for %s", page
+                    )
                     return cached[1]
             raise
 
-        if "parse" not in data or "text" not in data["parse"]:
-            raise ValueError("Liquipedia response did not contain parse text")
+        if "parse" not in data or "text" not in data.get("parse", {}):
+            raise ValueError(
+                f"Liquipedia API response missing parse.text for page '{page}'"
+            )
 
-        html = data["parse"]["text"]
+        html: str = data["parse"]["text"]
         self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
         self._liquipedia_backoff_until = None
         return html
 
-    async def _async_fetch_hltv_signal(self, active_stage: str) -> dict[str, Any]:
+    # ------------------------------------------------------------------ #
+    #  HLTV                                                                #
+    # ------------------------------------------------------------------ #
+
+    async def _async_fetch_hltv_signals(self, active_stage: str) -> dict[str, Any]:
+        """Fetch score signals from trusted HLTV Cologne event URLs."""
         now = datetime.now(UTC)
         if self._hltv_cache and self._hltv_cache[0] > now:
             return self._hltv_cache[1]
 
         bundle: dict[str, Any] = {
-            "enabled": True,
             "ok": True,
             "error": None,
-            "strict_filter": True,
             "used_urls": [],
             "dropped_urls": [],
-            "signal_lines": [],
+            "score_lines": [],
             "bracket_lines": [],
-            "teams": [],
         }
-        try:
-            lines: list[str] = []
-            bracket_lines: list[str] = []
-            teams: list[str] = []
-            headers = {
-                "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
-            }
-            for url in self._hltv_urls_for_stage(active_stage):
-                async with self._session.get(url, headers=headers, timeout=20) as resp:
+        score_lines: list[str] = []
+        bracket_lines: list[str] = []
+
+        for url in self._hltv_urls_for_stage(active_stage):
+            try:
+                async with self._session.get(
+                    url,
+                    headers={"User-Agent": _LIQUIPEDIA_USER_AGENT},
+                    timeout=20,
+                ) as resp:
                     resp.raise_for_status()
                     html = await resp.text()
 
                 soup = BeautifulSoup(html, "html.parser")
                 text = soup.get_text("\n", strip=True)
-                if not self._is_expected_cologne_page(text):
-                    bundle["dropped_urls"].append(url)
-                    continue
+
                 bundle["used_urls"].append(url)
-                lines.extend(self._extract_score_lines(text))
-                bracket_lines.extend(self._collect_bracket_lines(text))
-                teams.extend(self._extract_hltv_teams(soup))
+                score_lines.extend(self._extract_score_lines(text))
+                bracket_lines.extend(self._extract_bracket_lines(text))
 
-            if not bundle["used_urls"]:
-                raise RuntimeError("No HLTV Cologne pages passed strict filter")
+            except Exception as url_err:
+                bundle["dropped_urls"].append(url)
+                _LOGGER.debug("HLTV URL %s failed: %s", url, url_err)
 
-            bundle["signal_lines"] = self._uniq(lines)[:40]
-            bundle["bracket_lines"] = self._uniq(bracket_lines)[:32]
-            bundle["teams"] = self._uniq(teams)[:32]
-            self._hltv_cache = (now + timedelta(minutes=_HLTV_CACHE_MINUTES), bundle)
-            return bundle
-        except Exception as err:
-            _LOGGER.warning("HLTV signal fetch failed: %s", err)
+        if bundle["used_urls"]:
+            bundle["score_lines"] = self._uniq(score_lines)[:40]
+            bundle["bracket_lines"] = self._uniq(bracket_lines)[:20]
+        else:
             bundle["ok"] = False
-            bundle["error"] = str(err)
-            if self._hltv_cache:
-                return self._hltv_cache[1]
-            return bundle
+            bundle["error"] = "All HLTV URLs failed or were dropped"
 
-    def _parse_infobox(self, soup: BeautifulSoup) -> dict[str, Any]:
-        info: dict[str, Any] = {}
-        table = soup.find("table", class_=re.compile("infobox"))
-        if not table:
-            return info
+        self._hltv_cache = (
+            now + timedelta(minutes=_HLTV_CACHE_MINUTES),
+            bundle,
+        )
+        return bundle
 
-        for row in table.find_all("tr"):
-            key_el = row.find("th")
-            val_el = row.find("td")
-            if not key_el or not val_el:
-                continue
+    # ------------------------------------------------------------------ #
+    #  Stage detection                                                     #
+    # ------------------------------------------------------------------ #
 
-            key = self._clean_text(key_el.get_text(" ", strip=True)).lower().replace(" ", "_")
-            value = self._clean_text(val_el.get_text(" ", strip=True))
-            if key and value:
-                info[key] = value
+    def _detect_active_stage(self, today: date) -> str:
+        """Return current stage name based on hardcoded tournament calendar."""
+        stages = [
+            ("Stage 1",  date(2026, 6,  2), date(2026, 6,  5)),
+            ("Stage 2",  date(2026, 6,  6), date(2026, 6,  9)),
+            ("Stage 3",  date(2026, 6, 11), date(2026, 6, 15)),
+            ("Playoffs", date(2026, 6, 18), date(2026, 6, 21)),
+        ]
+        first_day = stages[0][1]
+        last_day = stages[-1][2]
 
-        return info
-
-    def _parse_stage_windows(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
-        heading = self._find_heading_by_text(soup, "Format")
-        if not heading:
-            return []
-
-        windows: list[dict[str, Any]] = []
-        for line in self._collect_section_lines(heading):
-            match = _STAGE_LINE_RE.match(line)
-            if not match:
-                continue
-
-            stage_name = match.group(1)
-            left = self._normalize_ordinals(match.group(2))
-            right = self._normalize_ordinals(match.group(3))
-            year = match.group(4)
-
-            parsed = self._parse_stage_window(stage_name, left, right, year)
-            if parsed:
-                windows.append(
-                    {
-                        "name": parsed.name,
-                        "start": parsed.start.isoformat(),
-                        "end": parsed.end.isoformat(),
-                    }
-                )
-
-        return windows
-
-    def _parse_stage_window(
-        self, stage_name: str, left_date_text: str, right_date_text: str, year: str
-    ) -> ParsedStageWindow | None:
-        try:
-            if " " not in right_date_text:
-                left_month, left_day = left_date_text.split(" ", 1)
-                right_date_text = f"{left_month} {right_date_text}"
-
-            start = datetime.strptime(f"{left_date_text} {year}", "%B %d %Y").date()
-            end = datetime.strptime(f"{right_date_text} {year}", "%B %d %Y").date()
-
-            return ParsedStageWindow(name=stage_name.title(), start=start, end=end)
-        except Exception:
-            return None
-
-    def _parse_participants(self, soup: BeautifulSoup) -> dict[str, list[str]]:
-        participants: dict[str, list[str]] = {
-            "stage_1": [],
-            "stage_2": [],
-            "stage_3": [],
-        }
-
-        mapping = {
-            "Stage 1 Invites": "stage_1",
-            "Stage 2 Invites": "stage_2",
-            "Stage 3 Invites": "stage_3",
-        }
-
-        for section_name, out_key in mapping.items():
-            heading = self._find_heading_by_text(soup, section_name)
-            if not heading:
-                continue
-
-            names: list[str] = []
-            for link in self._collect_section_links(heading):
-                href = link.get("href", "")
-                text = self._clean_text(link.get_text(" ", strip=True))
-                if not text or not self._is_lq_team_link(href):
-                    continue
-                if text in {"VRS Europe (Apr. 2026)", "VRS Americas (Apr. 2026)", "VRS Asia (Apr. 2026)"}:
-                    continue
-                if not self._is_valid_team_name(text):
-                    continue
-                if text in names:
-                    continue
-                names.append(text)
-
-            participants[out_key] = names
-
-        return participants
-
-    def _parse_upcoming_matches(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
-        heading = self._find_heading_by_text(soup, "Upcoming Matches")
-        if not heading:
-            return []
-
-        matches: list[dict[str, Any]] = []
-        for line in self._collect_section_lines(heading):
-            if "TBD" not in line and "vs" not in line.lower() and "Show countdown" not in line:
-                continue
-
-            matches.append(
-                {
-                    "name": line,
-                    "status": "scheduled",
-                    "begin_at": None,
-                    "opponents": [],
-                }
-            )
-
-        return matches[:25]
-
-    def _parse_team_rosters(
-        self, soup: BeautifulSoup, participants: dict[str, list[str]]
-    ) -> dict[str, list[str]]:
-        rosters: dict[str, list[str]] = {}
-        mapping = {
-            "Stage 1 Invites": "stage_1",
-            "Stage 2 Invites": "stage_2",
-            "Stage 3 Invites": "stage_3",
-        }
-
-        for section_name, stage_key in mapping.items():
-            heading = self._find_heading_by_text(soup, section_name)
-            if not heading:
-                continue
-
-            stage_teams = participants.get(stage_key, [])
-            if not stage_teams:
-                continue
-
-            current_team: str | None = None
-            for line in self._collect_section_lines(heading):
-                team_match = self._match_team_line(line, stage_teams)
-                if team_match:
-                    current_team = team_match
-                    rosters.setdefault(current_team, [])
-                    continue
-
-                if not current_team:
-                    continue
-
-                player = self._extract_player_from_roster_line(line)
-                if player and player not in rosters[current_team]:
-                    rosters[current_team].append(player)
-
-            # keep only realistic roster size
-            for team in list(rosters):
-                rosters[team] = rosters[team][:7]
-
-        return rosters
-
-    def _find_heading_by_text(self, soup: BeautifulSoup, needle: str) -> Any | None:
-        for heading in soup.find_all(["h2", "h3", "h4"]):
-            text = self._clean_text(heading.get_text(" ", strip=True))
-            if needle.lower() in text.lower():
-                return heading
-        return None
-
-    def _collect_section_lines(self, heading: Any) -> list[str]:
-        lines: list[str] = []
-        for node in heading.next_siblings:
-            if getattr(node, "name", None) in {"h2", "h3", "h4"}:
-                break
-            if getattr(node, "get_text", None):
-                raw = node.get_text("\n", strip=True)
-                for line in raw.splitlines():
-                    cleaned = self._clean_text(line)
-                    if cleaned:
-                        lines.append(cleaned)
-        return lines
-
-    def _collect_section_links(self, heading: Any) -> list[Any]:
-        links: list[Any] = []
-        for node in heading.next_siblings:
-            if getattr(node, "name", None) in {"h2", "h3", "h4"}:
-                break
-            if getattr(node, "find_all", None):
-                links.extend(node.find_all("a"))
-        return links
-
-    def _detect_active_stage(self, today: date, stage_windows: list[dict[str, Any]]) -> str:
-        if not stage_windows:
-            return "Unknown"
-
-        parsed: list[ParsedStageWindow] = []
-        for item in stage_windows:
-            try:
-                parsed.append(
-                    ParsedStageWindow(
-                        name=item["name"],
-                        start=datetime.fromisoformat(item["start"]).date(),
-                        end=datetime.fromisoformat(item["end"]).date(),
-                    )
-                )
-            except Exception:
-                continue
-
-        if not parsed:
-            return "Unknown"
-
-        parsed.sort(key=lambda x: x.start)
-
-        if today < parsed[0].start:
+        if today < first_day:
             return "Upcoming"
-        if today > parsed[-1].end:
+        if today > last_day:
             return "Finished"
 
-        for stage in parsed:
-            if stage.start <= today <= stage.end:
-                return stage.name
+        for name, start, end in stages:
+            if start <= today <= end:
+                return name
 
-        return "Live"
+        for i, (_name, _start, end) in enumerate(stages[:-1]):
+            next_start = stages[i + 1][1]
+            if end < today < next_start:
+                return f"Pause (vor {stages[i + 1][0]})"
 
-    def _normalize_ordinals(self, text: str) -> str:
-        return _ORDINAL_RE.sub(r"\1", text)
+        return "Unknown"
 
-    def _clean_text(self, text: str) -> str:
-        return re.sub(r"\s+", " ", text).strip()
-
-    def _safe_parse_datetime(self, value: str | None) -> datetime | None:
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except Exception:
-            return None
-
-    def _participants_count(self, participants: dict[str, Any]) -> int:
-        return sum(len(v) for v in participants.values() if isinstance(v, list))
-
-    def _participants_from_fallback_teams(self, teams: list[str]) -> dict[str, list[str]]:
-        # Prefer filling Stage 1 first in fallback mode because this stage has the broadest invite pool.
-        stage_1 = teams[:16]
-        remaining = teams[16:24]
-        stage_2 = remaining[:8]
-        stage_3 = teams[24:32]
-        return {
-            "stage_1": stage_1,
-            "stage_2": stage_2,
-            "stage_3": stage_3,
-        }
+    # ------------------------------------------------------------------ #
+    #  Signal extraction helpers                                           #
+    # ------------------------------------------------------------------ #
 
     def _extract_score_lines(self, text: str) -> list[str]:
+        """Return lines containing a score token AND at least one known team."""
         lines: list[str] = []
-        for raw_line in text.splitlines():
-            line = self._clean_text(raw_line)
-            if self._is_plausible_score_line(line):
+        for raw in text.splitlines():
+            line = self._clean_text(raw)
+            if not line or len(line) > 120 or len(line) < 6:
+                continue
+            if _DATE_LIKE_RE.search(line):
+                continue
+            if _BARE_SCORE_RE.fullmatch(line):
+                continue
+            if not _SCORE_TOKEN_RE.search(line):
+                continue
+            lower = line.lower()
+            if any(kw in lower for kw in _NOISE_KEYWORDS):
+                continue
+            if any(team.lower() in lower for team in _ALL_TEAMS):
                 lines.append(line)
         return lines
 
-    def _collect_bracket_lines(self, text: str) -> list[str]:
+    def _extract_bracket_lines(self, text: str) -> list[str]:
+        """Return bracket/playoff lines mentioning known teams."""
         lines: list[str] = []
-        for raw_line in text.splitlines():
-            line = self._clean_text(raw_line)
+        for raw in text.splitlines():
+            line = self._clean_text(raw)
             if not line or len(line) > 120:
                 continue
             lower = line.lower()
-            if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
+            has_bracket = any(kw in lower for kw in _BRACKET_KEYWORDS)
+            has_team = any(team.lower() in lower for team in _ALL_TEAMS)
+            has_score = bool(_SCORE_TOKEN_RE.search(line))
+            if any(kw in lower for kw in _NOISE_KEYWORDS):
                 continue
-            if "iem" in lower and "cologne" not in lower:
-                continue
-            if "Final" in line or "Semifinal" in line or "Quarterfinal" in line:
+            if has_bracket and (has_team or "tbd" in lower):
                 lines.append(line)
-                continue
-            if "TBD" in line and ("vs" in line.lower() or "Final" in line):
-                lines.append(line)
-                continue
-            if _SCORE_TOKEN_RE.search(line) and "vs" in line.lower():
+            elif has_score and has_team and " vs " in lower:
                 lines.append(line)
         return lines
 
-    def _extract_hltv_teams(self, soup: BeautifulSoup) -> list[str]:
-        section_heading = self._find_heading_by_text(soup, "Teams attending")
-        if section_heading:
-            scoped_teams: list[str] = []
-            for link in self._collect_section_links(section_heading):
-                href = link.get("href", "")
-                if not _HLTV_TEAM_HREF_RE.match(href):
-                    continue
-                name = self._clean_text(link.get_text(" ", strip=True))
-                if not self._is_valid_team_name(name):
-                    continue
-                if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
-                    continue
-                scoped_teams.append(name)
-            if scoped_teams:
-                return scoped_teams
-
-        teams: list[str] = []
-        for link in soup.find_all("a"):
-            href = link.get("href", "")
-            if not _HLTV_TEAM_HREF_RE.match(href):
-                continue
-            name = self._clean_text(link.get_text(" ", strip=True))
-            if not self._is_valid_team_name(name):
-                continue
-            if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
-                continue
-            teams.append(name)
-        return teams
-
-    def _is_expected_cologne_page(self, text: str) -> bool:
-        lower = text.lower()
-        has_expected = any(keyword in lower for keyword in _COLOGNE_EVENT_KEYWORDS)
-        has_blocked = any(keyword in lower for keyword in _BLOCKED_EVENT_KEYWORDS)
-        return has_expected and not has_blocked
-
-    def _is_lq_team_link(self, href: str) -> bool:
-        if not href.startswith("/counterstrike/"):
-            return False
-        if "index.php" in href or "action=" in href or "?" in href or "#" in href:
-            return False
-        tail = href.removeprefix("/counterstrike/")
-        if not tail or ":" in tail:
-            return False
-        return True
-
-    def _is_valid_team_name(self, name: str) -> bool:
-        normalized = self._clean_text(name)
-        if not normalized or len(normalized) > 40:
-            return False
-        if normalized.lower() in _SKIP_TEAM_NAMES:
-            return False
-        if not re.search(r"[A-Za-z]", normalized):
-            return False
-        return True
-
-    def _is_plausible_score_line(self, line: str) -> bool:
-        if not line or len(line) > 120:
-            return False
-        if _DATE_LIKE_RE.search(line):
-            return False
-        if not _SCORE_TOKEN_RE.search(line):
-            return False
-        lower = line.lower()
-        if any(skip in lower for skip in ("cookie", "viewers", "privacy", "vrs", "http", "edit")):
-            return False
-        if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
-            return False
-        # Exclude bare score cells like "1:0" that are not useful match signals.
-        if re.fullmatch(r"\d{1,2}\s*[:\-]\s*\d{1,2}", line):
-            return False
-        if not re.search(r"[A-Za-z]{2,}", line):
-            return False
-        return True
-
-    def _sanitize_participants(self, participants: dict[str, Any]) -> dict[str, list[str]]:
-        sanitized: dict[str, list[str]] = {
-            "stage_1": [],
-            "stage_2": [],
-            "stage_3": [],
-        }
-        for key in sanitized:
-            source = participants.get(key, [])
-            clean = [name for name in source if isinstance(name, str) and self._is_valid_team_name(name)]
-            sanitized[key] = self._uniq(clean)
-        return sanitized
-
-    def _sanitize_score_lines(self, lines: list[str]) -> list[str]:
-        clean: list[str] = []
-        for line in lines:
-            normalized = self._clean_text(line)
-            if self._is_plausible_score_line(normalized):
-                clean.append(normalized)
-        return clean
-
-    def _sanitize_bracket_lines(self, lines: list[str]) -> list[str]:
-        clean: list[str] = []
-        for line in lines:
-            normalized = self._clean_text(line)
-            lower = normalized.lower()
-            if not normalized or len(normalized) > 120:
-                continue
-            if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
-                continue
-            if "iem" in lower and "cologne" not in lower:
-                continue
-            clean.append(normalized)
-        return clean
-
-    def _match_team_line(self, line: str, teams: list[str]) -> str | None:
-        normalized = self._clean_text(line)
-        for team in teams:
-            if normalized == team:
-                return team
-            if normalized.endswith(team):
-                return team
-        return None
-
-    def _extract_player_from_roster_line(self, line: str) -> str | None:
-        normalized = self._clean_text(line)
-        if normalized.startswith("VRS "):
-            return None
-        match = _ROSTER_LINE_RE.match(normalized)
-        if not match:
-            return None
-        player = match.group(2)
-        if player.lower() in {"dnp", "sub"}:
-            return None
-        return player
+    # ------------------------------------------------------------------ #
+    #  Utility helpers                                                     #
+    # ------------------------------------------------------------------ #
 
     def _update_score_fingerprint(self, lines: list[str]) -> bool:
-        serialized = "\n".join(lines)
-        new_fingerprint = hashlib.sha1(serialized.encode("utf-8")).hexdigest()
-        old_fingerprint = self._last_scores_fingerprint
-        self._last_scores_fingerprint = new_fingerprint
-        return old_fingerprint is not None and old_fingerprint != new_fingerprint
+        """Return True if score lines changed since last call."""
+        new = hashlib.sha1("\n".join(lines).encode()).hexdigest()
+        old = self._last_scores_fingerprint
+        self._last_scores_fingerprint = new
+        return old is not None and old != new
 
-    def _uniq(self, lines: list[str]) -> list[str]:
+    @staticmethod
+    def _uniq(lines: list[str]) -> list[str]:
         seen: set[str] = set()
-        output: list[str] = []
+        out: list[str] = []
         for line in lines:
-            if line in seen:
-                continue
-            seen.add(line)
-            output.append(line)
-        return output
+            if line not in seen:
+                seen.add(line)
+                out.append(line)
+        return out
 
-    def _stage_to_detail_page(self, active_stage: str) -> str | None:
-        mapping = {
-            "Stage 1": f"{self._liquipedia_page}/Stage_1",
-            "Stage 2": f"{self._liquipedia_page}/Stage_2",
-            "Stage 3": f"{self._liquipedia_page}/Stage_3",
-            "Playoffs": f"{self._liquipedia_page}/Playoffs",
-        }
-        return mapping.get(active_stage)
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip()
 
     def _hltv_urls_for_stage(self, active_stage: str) -> list[str]:
-        stage_map = {
+        """Return relevant HLTV URL(s) for the currently active stage."""
+        mapping: dict[str, list[str]] = {
             "Stage 1": [HLTV_EVENT_URLS[0]],
             "Stage 2": [HLTV_EVENT_URLS[1]],
             "Stage 3": [HLTV_EVENT_URLS[2]],
             "Playoffs": [HLTV_EVENT_URLS[2]],
         }
-        return stage_map.get(active_stage, [HLTV_EVENT_URLS[2]])
-
-    def _build_fallback_payload(self, now: datetime) -> dict[str, Any]:
-        payload = dict(self._last_payload or {})
-        sources = dict(payload.get("sources", {}))
-        liquipedia = dict(sources.get("liquipedia", {}))
-        liquipedia["ok"] = False
-        liquipedia["error"] = "Using cached data due to rate limiting"
-        sources["liquipedia"] = liquipedia
-        payload["sources"] = sources
-        payload["updated_at"] = now.isoformat()
-        return payload
-
-    async def _build_emergency_payload(self, now: datetime, liquipedia_error: str) -> dict[str, Any]:
-        hltv_signal: dict[str, Any] = {
-            "enabled": self._include_hltv_signal,
-            "ok": False,
-            "error": "disabled",
-            "signal_lines": [],
-            "bracket_lines": [],
-            "teams": [],
-        }
-        if self._include_hltv_signal:
-            try:
-                hltv_signal = await self._async_fetch_hltv_signal("Unknown")
-            except Exception:
-                pass
-
-        score_lines = self._uniq(list(hltv_signal.get("signal_lines", [])))[:80]
-        score_change_detected = self._update_score_fingerprint(score_lines)
-        if score_change_detected:
-            self._last_score_change = now.isoformat()
-
-        payload = {
-            "updated_at": now.isoformat(),
-            "active_stage": self._detect_active_stage(now.date(), _DEFAULT_STAGE_WINDOWS),
-            "overview": {
-                "source_mode": "emergency",
-            },
-            "stage_windows": _DEFAULT_STAGE_WINDOWS,
-            "participants": self._participants_from_fallback_teams(hltv_signal.get("teams", [])),
-            "team_rosters": {},
-            "bracket_lines": hltv_signal.get("bracket_lines", []),
-            "upcoming_matches": [],
-            "live_matches": [],
-            "completed_matches": [{"name": line, "status": "finished"} for line in score_lines],
-            "next_match": None,
-            "matches_today": 0,
-            "score_change_detected": score_change_detected,
-            "last_score_change": self._last_score_change,
-            "score_signal_lines": score_lines,
-            "sources": {
-                "liquipedia": {
-                    "page": self._liquipedia_page,
-                    "ok": False,
-                    "error": liquipedia_error,
-                    "policy_mode": "mediawiki_api_only",
-                },
-                "hltv": {
-                    "enabled": hltv_signal.get("enabled", False),
-                    "ok": hltv_signal.get("ok", False),
-                    "error": hltv_signal.get("error"),
-                    "strict_filter": hltv_signal.get("strict_filter", True),
-                    "used_urls": hltv_signal.get("used_urls", []),
-                    "dropped_urls": hltv_signal.get("dropped_urls", []),
-                    "teams_detected": len(hltv_signal.get("teams", [])),
-                    "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
-                },
-            },
-        }
-        self._last_payload = payload
-        return payload
+        if active_stage.startswith("Pause"):
+            return HLTV_EVENT_URLS[:2] if "Stage 2" in active_stage else HLTV_EVENT_URLS[1:]
+        return mapping.get(active_stage, [HLTV_EVENT_URLS[2]])
