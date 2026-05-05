@@ -98,6 +98,23 @@ _LQ_TEAM_SLUGS: dict[str, str] = {
     "MOUZ": "MOUZ",
 }
 
+# Swiss standings: W-L regex (handles both hyphen and en-dash)
+_WL_RE = re.compile(r"^(\d+)[\u2013\-](\d+)$")
+
+# Liquipedia subpage slug per active stage (populated once page exists)
+_STAGE_LQ_SUBPAGES: dict[str, str] = {
+    "Stage 1": "Intel_Extreme_Masters/2026/Cologne/Stage_1",
+    "Stage 2": "Intel_Extreme_Masters/2026/Cologne/Stage_2",
+    "Stage 3": "Intel_Extreme_Masters/2026/Cologne/Stage_3",
+}
+
+# How many teams advance from each Swiss stage
+_STAGE_ADVANCE_COUNT: dict[str, int] = {
+    "Stage 1": 8,
+    "Stage 2": 8,
+    "Stage 3": 8,
+}
+
 # Noise keywords that indicate a line is NOT a score signal
 _NOISE_KEYWORDS = (
     "cookie", "privacy", "http", "edit", "viewer", "follow",
@@ -136,6 +153,8 @@ class IEMCologneApiClient:
         self._roster_cache: dict[str, tuple[datetime, list[str]]] = {}
         self._roster_team_list: list[str] = list(_LQ_TEAM_SLUGS.keys())
         self._roster_idx: int = 0
+        # Swiss standings cache: stage_name -> (expires_at, standings_list)
+        self._standings_cache: dict[str, tuple[datetime, list[dict]]] = {}
 
     # ------------------------------------------------------------------ #
     #  Public interface                                                    #
@@ -217,6 +236,7 @@ class IEMCologneApiClient:
             },
             "participants": participants,
             "team_rosters": self._get_cached_rosters(),
+            "swiss_standings": self._get_cached_standings(active_stage),
             # Live signals
             "score_signal_lines": score_lines,
             "bracket_lines": bracket_lines,
@@ -472,12 +492,43 @@ class IEMCologneApiClient:
         }
 
     async def async_fetch_next_roster(self) -> None:
-        """Fetch one team's roster from Liquipedia.
+        """Background fetch: Swiss standings (if stale) first, then one team roster.
 
-        Intended to be called ~32 seconds after the main update to respect
-        Liquipedia's 1-req/30s rate limit.
+        Called ~32 seconds after each main coordinator update to respect
+        Liquipedia's 1-req/30s rate limit.  Only ONE request is made per call.
         """
         now = datetime.now(UTC)
+        today = now.date()
+        active_stage = self._detect_active_stage(today)
+
+        # 1) Fetch Swiss standings for the active stage if stale --------
+        stage_subpage = _STAGE_LQ_SUBPAGES.get(active_stage)
+        if stage_subpage:
+            cached_st = self._standings_cache.get(active_stage)
+            if not cached_st or cached_st[0] <= now:
+                n_advance = _STAGE_ADVANCE_COUNT.get(active_stage, 8)
+                try:
+                    html = await self._async_fetch_liquipedia_page_html(
+                        stage_subpage, cache_minutes=_MAIN_PAGE_CACHE_MINUTES
+                    )
+                    standings = self._parse_swiss_standings(html, n_advance)
+                    self._standings_cache[active_stage] = (
+                        now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES),
+                        standings,
+                    )
+                    _LOGGER.debug(
+                        "Swiss standings for %s: %d entries", active_stage, len(standings)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Page may not exist yet (pre-tournament); keep last known data
+                    self._standings_cache.setdefault(
+                        active_stage,
+                        (now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES), []),
+                    )
+                    _LOGGER.debug("Standings fetch skipped for %s: %s", active_stage, exc)
+                return  # one request per background call
+
+        # 2) Fetch next team's roster -----------------------------------
         teams = self._roster_team_list
         if not teams:
             return
@@ -505,6 +556,106 @@ class IEMCologneApiClient:
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.debug("Could not fetch roster for %s: %s", team_name, exc)
             return  # only fetch one team per call
+
+    def _get_cached_standings(self, active_stage: str) -> list[dict]:
+        """Return last known Swiss standings for the active stage (stale-while-revalidate)."""
+        cached = self._standings_cache.get(active_stage)
+        return cached[1] if cached else []
+
+    @staticmethod
+    def _parse_swiss_standings(html: str, n_advance: int = 8) -> list[dict[str, Any]]:
+        """Parse the Swiss overview table from a rendered Liquipedia stage page.
+
+        Expected table columns (Liquipedia CS Major format):
+          #  |  Team  |  Matches  |  Rounds  |  RD  |  BU  |  Round 1  | ...
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        standings: list[dict] = []
+
+        for table in soup.select("table.wikitable"):
+            # Identify header row
+            header_row = table.find("tr")
+            if not header_row:
+                continue
+            headers = [
+                th.get_text(strip=True).lower()
+                for th in header_row.find_all(["th", "td"])
+            ]
+            # Must have both "team" and "matches" columns
+            if "team" not in headers or "matches" not in headers:
+                continue
+
+            matches_idx = headers.index("matches")
+            team_idx = headers.index("team")
+            rd_idx = headers.index("rd") if "rd" in headers else -1
+            rounds_idx = headers.index("rounds") if "rounds" in headers else -1
+            round_col_indices = [i for i, h in enumerate(headers) if re.match(r"round\s*\d", h)]
+
+            for row in table.find_all("tr")[1:]:
+                cells = row.find_all(["td", "th"])
+                if len(cells) <= matches_idx:
+                    continue
+
+                # Rank
+                rank_txt = cells[0].get_text(strip=True).rstrip(".")
+                try:
+                    rank = int(rank_txt)
+                except ValueError:
+                    continue
+
+                # Team name: prefer .team-template-text, then <a>, then raw text
+                team_cell = cells[team_idx]
+                name_el = (
+                    team_cell.select_one(".team-template-text")
+                    or team_cell.select_one("a")
+                    or team_cell
+                )
+                team_name = name_el.get_text(strip=True)
+                if not team_name:
+                    continue
+
+                # W-L record
+                wl_txt = cells[matches_idx].get_text(strip=True).replace("\u2013", "-")
+                wl_m = _WL_RE.match(wl_txt)
+                if not wl_m:
+                    continue
+                wins, losses = int(wl_m.group(1)), int(wl_m.group(2))
+
+                # Status
+                if wins >= 3:
+                    status = "advancing"
+                elif losses >= 3:
+                    status = "eliminated"
+                else:
+                    status = "playing"
+
+                # Round diff
+                rd_txt = cells[rd_idx].get_text(strip=True) if rd_idx >= 0 and rd_idx < len(cells) else ""
+                rounds_txt = cells[rounds_idx].get_text(strip=True) if rounds_idx >= 0 and rounds_idx < len(cells) else ""
+
+                # Per-round results
+                round_results = [
+                    cells[ri].get_text(" ", strip=True)
+                    for ri in round_col_indices
+                    if ri < len(cells) and cells[ri].get_text(strip=True)
+                ]
+
+                standings.append({
+                    "rank": rank,
+                    "team": team_name,
+                    "record": f"{wins}-{losses}",
+                    "wins": wins,
+                    "losses": losses,
+                    "status": status,
+                    "rd": rd_txt,
+                    "rounds": rounds_txt,
+                    "round_results": round_results,
+                })
+
+            if standings:
+                break  # found the right table
+
+        return standings
 
     def _parse_roster_from_html(self, html: str, team_name: str) -> list[str]:
         """Extract player names from a Liquipedia team page HTML."""

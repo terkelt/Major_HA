@@ -223,6 +223,26 @@ cards:
       &nbsp;|&nbsp;
       **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | count }}
 
+  # === SWISS STANDINGS ===
+  - type: markdown
+    title: "Swiss Standings (aktive Stage)"
+    content: >
+      {% set standings = state_attr('sensor.iem_cologne_participants', 'swiss_standings') | default([]) %}
+      {% set stage = states('sensor.iem_cologne_phase') %}
+      {% if standings | count == 0 %}
+      _Keine Standings verfügbar – wird geladen sobald die Stage läuft._
+
+      **Aktuelle Stage:** {{ stage }}
+      {% else %}
+      **{{ stage }} – {{ standings | count }} Teams:**
+
+      | # | Team | Record | RD | Status |
+      |---|------|--------|----|--------|
+      {% for s in standings %}
+      | {{ s.rank }} | **{{ s.team }}** | {{ s.record }} | {{ s.rd }} | {% if s.status == 'advancing' %}✅ Advancing{% elif s.status == 'eliminated' %}❌ Eliminated{% else %}🟡 Playing{% endif %} |
+      {% endfor %}
+      {% endif %}
+
   # === TEAM ROSTERS ===
   - type: markdown
     title: "Team Rosters (werden automatisch geladen)"
