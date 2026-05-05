@@ -236,6 +236,7 @@ class IEMCologneApiClient:
             },
             "participants": participants,
             "team_rosters": self._get_cached_rosters(),
+            "roster_status": self._get_roster_status(),
             "swiss_standings": self._get_cached_standings(active_stage),
             # Live signals
             "score_signal_lines": score_lines,
@@ -540,22 +541,47 @@ class IEMCologneApiClient:
             if cached and cached[0] > now:
                 continue  # still fresh
 
-            # Fetch this team
+            # Fetch this team's wikitext (respects same rate limit)
             self._roster_idx = (idx + 1) % len(teams)
             slug = _LQ_TEAM_SLUGS.get(team_name, team_name.replace(" ", "_"))
             try:
-                html = await self._async_fetch_liquipedia_page_html(
-                    slug, cache_minutes=_ROSTER_CACHE_HOURS * 60
-                )
-                players = self._parse_roster_from_html(html, team_name)
+                wikitext = await self._async_fetch_liquipedia_wikitext(slug)
+                players = self._parse_roster_from_wikitext(wikitext)
                 self._roster_cache[team_name] = (
                     now + timedelta(hours=_ROSTER_CACHE_HOURS),
                     players,
                 )
-                _LOGGER.debug("Fetched roster for %s: %s", team_name, players)
+                _LOGGER.info(
+                    "[IEM Cologne] Roster for %s: %s",
+                    team_name,
+                    players if players else "(empty – check slug or template)",
+                )
             except Exception as exc:  # noqa: BLE001
-                _LOGGER.debug("Could not fetch roster for %s: %s", team_name, exc)
-            return  # only fetch one team per call
+                _LOGGER.warning(
+                    "[IEM Cologne] Could not load roster for %s (slug=%s): %s",
+                    team_name, slug, exc,
+                )
+            return  # only one request per background call
+
+    def _get_roster_status(self) -> dict[str, Any]:
+        """Return diagnostic info about roster loading progress."""
+        now = datetime.now(UTC)
+        total = len(self._roster_team_list)
+        loaded = sum(
+            1 for (exp, pl) in self._roster_cache.values()
+            if exp > now and pl
+        )
+        empty = sum(
+            1 for (exp, pl) in self._roster_cache.values()
+            if exp > now and not pl
+        )
+        return {
+            "loaded": loaded,
+            "empty_response": empty,
+            "total": total,
+            "next_idx": self._roster_idx,
+            "next_team": self._roster_team_list[self._roster_idx] if self._roster_team_list else None,
+        }
 
     def _get_cached_standings(self, active_stage: str) -> list[dict]:
         """Return last known Swiss standings for the active stage (stale-while-revalidate)."""
@@ -657,31 +683,107 @@ class IEMCologneApiClient:
 
         return standings
 
-    def _parse_roster_from_html(self, html: str, team_name: str) -> list[str]:
-        """Extract player names from a Liquipedia team page HTML."""
-        soup = BeautifulSoup(html, "html.parser")
+    async def _async_fetch_liquipedia_wikitext(self, page: str) -> str:
+        """Fetch the raw wikitext of a Liquipedia page via action=query.
+
+        Much faster and more reliable than action=parse for roster extraction.
+        Shares the same rate-limit/backoff guard as the HTML fetch.
+        """
+        now = datetime.now(UTC)
+        cache_key = f"_wt:{page}"
+        cached = self._page_cache.get(cache_key)
+
+        if cached and cached[0] > now:
+            return cached[1]
+
+        if (
+            self._liquipedia_backoff_until
+            and now < self._liquipedia_backoff_until
+        ):
+            if cached:
+                return cached[1]
+            raise RuntimeError("Liquipedia rate-limited, no wikitext cache available")
+
+        params = {
+            "action": "query",
+            "prop": "revisions",
+            "titles": page,
+            "rvprop": "content",
+            "rvslots": "main",
+            "format": "json",
+            "formatversion": 2,
+        }
+        headers = {"User-Agent": _LIQUIPEDIA_USER_AGENT}
+
+        try:
+            async with self._session.get(
+                LIQUIPEDIA_API_URL,
+                params=params,
+                headers=headers,
+                timeout=20,
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        except ClientResponseError as err:
+            if err.status == 429:
+                self._liquipedia_backoff_until = now + timedelta(
+                    minutes=_LIQUIPEDIA_BACKOFF_MINUTES
+                )
+            raise
+
+        pages_list = data.get("query", {}).get("pages", [])
+        if not pages_list:
+            raise ValueError(f"No pages returned for '{page}'")
+        page_data = pages_list[0]
+        if page_data.get("missing"):
+            raise ValueError(f"Liquipedia page '{page}' not found")
+
+        revisions = page_data.get("revisions", [])
+        if not revisions:
+            raise ValueError(f"No revisions for Liquipedia page '{page}'")
+
+        # MediaWiki API v2: content is in slots.main.content
+        content: str = (
+            revisions[0].get("slots", {}).get("main", {}).get("content")
+            or revisions[0].get("content", "")
+        )
+        if not content:
+            raise ValueError(f"Empty wikitext for Liquipedia page '{page}'")
+
+        self._page_cache[cache_key] = (
+            now + timedelta(hours=_ROSTER_CACHE_HOURS),
+            content,
+        )
+        return content
+
+    @staticmethod
+    def _parse_roster_from_wikitext(wikitext: str) -> list[str]:
+        """Extract player in-game IDs from a Liquipedia CS team wikitext.
+
+        Liquipedia roster templates use the pattern::
+
+            {{ RosterPlayer
+            |id       = maden
+            |flag     = de
+            |name     = Robin Sadokvist
+            ...
+            }}
+
+        We extract the ``|id`` field, which is the in-game tag.
+        """
         players: list[str] = []
-
-        # Liquipedia CS2 team pages: players in .roster-card table
-        # Player link href="/counterstrike/PlayerName" with in-game tag as text
-        for a in soup.select('table.roster-card a[href*="/counterstrike/"]'):
-            name = a.get_text(strip=True)
-            if name and len(name) >= 2 and name not in players:
+        for m in re.finditer(r"\|\s*id\s*=\s*([^\|\}\n]+)", wikitext):
+            raw = m.group(1).strip()
+            # Strip wiki markup:  [[Link|Text]] -> Text,  {{template}} -> removed
+            raw = re.sub(r"\{\{[^}]*\}\}", "", raw)
+            raw = re.sub(r"\[\[[^\]|]+\|([^\]]+)\]\]", r"\1", raw)  # [[A|B]] -> B
+            raw = re.sub(r"\[\[([^\]]+)\]\]", r"\1", raw)           # [[A]] -> A
+            raw = re.sub(r"<[^>]+>", "", raw)                         # HTML tags
+            name = raw.strip()
+            if name and 1 <= len(name) <= 30 and name not in players:
                 players.append(name)
-            if len(players) >= 5:
+            if len(players) >= 8:  # 5 starters + up to 3 subs/coaches
                 break
-
-        # Fallback: any player-looking links in the page
-        if not players:
-            for a in soup.select('a[href*="/counterstrike/"]'):
-                href = a.get("href", "")
-                name = a.get_text(strip=True)
-                # Heuristic: player pages are single words or short tags
-                if name and 2 <= len(name) <= 20 and "_" not in name and name not in players:
-                    players.append(name)
-                if len(players) >= 5:
-                    break
-
         return players
 
     # ------------------------------------------------------------------ #

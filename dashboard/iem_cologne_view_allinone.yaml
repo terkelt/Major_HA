@@ -211,6 +211,8 @@ cards:
 
       {% set hltv = d.get('hltv', {}) %}
 
+      {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}) %}
+
       {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') %}
 
       **Letztes Update:** {{ updated | default('unbekannt') }}
@@ -222,6 +224,10 @@ cards:
       **Genutzte URLs:** {{ hltv.get('used_urls', []) | count }}
       &nbsp;|&nbsp;
       **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | count }}
+
+      **Roster:** {{ rs.get('loaded', 0) }}/{{ rs.get('total', 32) }} geladen
+      ({{ rs.get('empty_response', 0) }} leer)
+      · nächstes Team: {{ rs.get('next_team', '?') }}
 
   # === SWISS STANDINGS ===
   - type: markdown
