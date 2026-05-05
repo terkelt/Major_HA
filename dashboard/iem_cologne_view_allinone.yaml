@@ -51,7 +51,7 @@ cards:
           **Swiss Bo1 / Elim. Bo3 | 16 Teams | 8 weiter**
 
 
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([]) %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([], true) %}
 
           {% if p | count > 0 %}
 
@@ -76,7 +76,7 @@ cards:
 
           **Direct Invites (8):**
 
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([]) %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([], true) %}
 
           {% if p | count > 0 %}
 
@@ -106,7 +106,7 @@ cards:
 
           **Top Seeds / Direct Invites (8):**
 
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([]) %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([], true) %}
 
           {% if p | count > 0 %}
 
@@ -150,7 +150,7 @@ cards:
       - type: markdown
         title: "Live Score-Signale"
         content: >
-          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([]) %}
+          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([], true) %}
 
           {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
 
@@ -177,7 +177,7 @@ cards:
       - type: markdown
         title: "Bracket / Playoff-Signale"
         content: >
-          {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([]) %}
+          {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([], true) %}
 
           {% if bracket | count == 0 %}
 
@@ -205,17 +205,17 @@ cards:
   - type: markdown
     title: "Quellen & Diagnose"
     content: >
-      {% set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}) %}
+      {% set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}, true) %}
 
       {% set liq = d.get('liquipedia', {}) %}
 
       {% set hltv = d.get('hltv', {}) %}
 
-      {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}) %}
+      {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) %}
 
       {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') %}
 
-      **Letztes Update:** {{ updated | default('unbekannt') }}
+      **Letztes Update:** {{ updated | default('unbekannt', true) }}
       &nbsp;|&nbsp;
       **Liquipedia:** {{ 'OK' if liq.get('ok') else 'FEHLER' }}
       &nbsp;|&nbsp;
@@ -233,7 +233,7 @@ cards:
   - type: markdown
     title: "Swiss Standings (aktive Stage)"
     content: >
-      {% set standings = state_attr('sensor.iem_cologne_participants', 'swiss_standings') | default([]) %}
+      {% set standings = state_attr('sensor.iem_cologne_participants', 'swiss_standings') | default([], true) %}
       {% set stage = states('sensor.iem_cologne_phase') %}
       {% if standings | count == 0 %}
       _Keine Standings verfügbar – wird geladen sobald die Stage läuft._
@@ -253,7 +253,7 @@ cards:
   - type: markdown
     title: "Team Rosters (werden automatisch geladen)"
     content: >
-      {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}) %}
+      {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
       {% if rosters | count == 0 %}
       _Rosters werden geladen (Liquipedia, ein Team alle 5 Minuten)..._
       {% else %}
