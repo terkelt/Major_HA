@@ -1,0 +1,63 @@
+title: Mobile
+path: iem-cologne-mobile
+icon: mdi:cellphone
+cards:
+  - type: vertical-stack
+    cards:
+      - type: heading
+        heading: IEM Cologne Mobile Center
+
+      - type: grid
+        square: false
+        columns: 2
+        cards:
+          - type: tile
+            entity: sensor.iem_cologne_phase
+            name: Phase
+            vertical: true
+          - type: tile
+            entity: sensor.iem_cologne_matches_today
+            name: Heute
+            vertical: true
+          - type: tile
+            entity: sensor.iem_cologne_score_signals
+            name: Scores
+            vertical: true
+          - type: tile
+            entity: sensor.iem_cologne_last_score_change
+            name: Letzte Aenderung
+            vertical: true
+
+      - type: entities
+        title: Schnellstatus
+        show_header_toggle: false
+        entities:
+          - entity: sensor.iem_cologne_next_match
+          - entity: sensor.iem_cologne_participants
+          - entity: sensor.iem_cologne_all_data
+
+      - type: markdown
+        title: Next Up
+        content: |
+          {% set m = state_attr('sensor.iem_cologne_next_match', 'next_match') %}
+          {% if m %}
+          **{{ m.name or 'N/A' }}**
+
+          {{ (m.opponents or []) | join(' vs ') }}
+
+          Start: {{ m.begin_at or 'n/a' }}
+          {% else %}
+          Kein naechstes Match verfuegbar.
+          {% endif %}
+
+      - type: markdown
+        title: Score Feed (Top 8)
+        content: |
+          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') or [] %}
+          {% if lines | count == 0 %}
+          Keine Score-Signale vorhanden.
+          {% else %}
+          {% for line in lines[:8] %}
+          - {{ line }}
+          {% endfor %}
+          {% endif %}

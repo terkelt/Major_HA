@@ -73,17 +73,43 @@ Fuer Updates in HACS empfiehlt sich ein Git-Tag pro Version (z. B. `v0.1.0`).
 
 ## Dashboard
 
-Eine fertige Lovelace-View liegt unter:
+Es gibt jetzt zwei Wege, je nachdem wo du in HA YAML bearbeitest:
+
+1. **Komplettes Dashboard (Raw Dashboard YAML):**
 
 - `dashboard/iem_cologne_dashboard.yaml`
 
-Du kannst diese YAML als neue Raw-View in dein Dashboard uebernehmen.
+2. **Einzelne Ansicht (genau dein Weg: Ansicht -> 3 Punkte -> in YAML bearbeiten):**
 
-Enthalten sind drei Views:
+- `dashboard/iem_cologne_view_match_center.yaml`
+- `dashboard/iem_cologne_view_sources.yaml`
+- `dashboard/iem_cologne_view_mobile.yaml`
 
-- Match Center (Desktop/Tablet)
-- Quellen
-- Mobile (kompakt mit grossen Kacheln und Score-Feed)
+### Wichtiger Unterschied
+
+- Wenn du in HA auf einer **einzelnen Ansicht** auf "in YAML bearbeiten" gehst, darf dort **kein** `title:` + `views:` Root vom ganzen Dashboard stehen.
+- Genau dafuer sind die drei `iem_cologne_view_*.yaml` Dateien gebaut.
+
+### Schritt-fuer-Schritt fuer deinen konkreten HA-Flow
+
+1. In HA eine neue Ansicht anlegen.
+2. In dieser Ansicht oben rechts auf **3 Punkte -> in YAML bearbeiten**.
+3. Kompletten Inhalt ersetzen durch eine der Dateien:
+   - `iem_cologne_view_match_center.yaml` (Hauptansicht)
+   - `iem_cologne_view_sources.yaml` (Quellen/Diagnose)
+   - `iem_cologne_view_mobile.yaml` (Mobile)
+4. Speichern.
+5. Fuer jede weitere Ansicht wiederholen.
+6. Browser mit **Strg+F5** hart neu laden.
+7. Falls noch leer: Integration unter **Geraete & Dienste** neu laden.
+
+### Was du danach sofort ablesen kannst
+
+- **Datenmodus**: Vollmodus oder Fallback.
+- **Teams gesamt / Stage Teams**: erkannte Teilnehmer je Stage.
+- **Team Roster (Auszug)**: nur sichtbar, wenn Roster extrahiert wurde.
+- **Bracket / Playoffs Signale**: erkannte K.-o.-Linien.
+- **Source State**: Liquipedia/HLTV Status inkl. Fehlertext.
 
 ## Hinweise
 

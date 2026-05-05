@@ -1,0 +1,21 @@
+title: Quellen
+path: iem-cologne-sources
+icon: mdi:database-search-outline
+cards:
+  - type: markdown
+    title: Datenquellen
+    content: |
+      **Primar:** Liquipedia Counter-Strike (MediaWiki API)
+      **Sekundar (Signal):** HLTV Eventseiten
+      Polling ist auf kurze Intervalle ausgelegt, um neue Scores schnell zu erkennen.
+
+  - type: markdown
+    title: Source State
+    content: |
+      {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
+      - Liquipedia OK: {{ src.liquipedia.ok if src.liquipedia is defined else 'n/a' }}
+      - HLTV aktiviert: {{ src.hltv.enabled if src.hltv is defined else 'n/a' }}
+      - HLTV OK: {{ src.hltv.ok if src.hltv is defined else 'n/a' }}
+      - HLTV Fehler: {{ src.hltv.error if src.hltv is defined else 'n/a' }}
+      - HLTV Teams erkannt: {{ src.hltv.teams_detected if src.hltv is defined else 'n/a' }}
+      - HLTV Bracket-Linien: {{ src.hltv.bracket_lines_detected if src.hltv is defined else 'n/a' }}
