@@ -153,6 +153,7 @@ class IEMCologneApiClient:
         self._roster_cache: dict[str, tuple[datetime, list[str]]] = {}
         self._roster_team_list: list[str] = list(_LQ_TEAM_SLUGS.keys())
         self._roster_idx: int = 0
+        self._roster_log: list[str] = []  # recent fetch events, newest first
         # Swiss standings cache: stage_name -> (expires_at, standings_list)
         self._standings_cache: dict[str, tuple[datetime, list[dict]]] = {}
 
@@ -551,12 +552,21 @@ class IEMCologneApiClient:
                     now + timedelta(hours=_ROSTER_CACHE_HOURS),
                     players,
                 )
+                if players:
+                    log_entry = f"✅ {team_name}: {', '.join(players)}"
+                else:
+                    log_entry = f"⚠️ {team_name}: leer (Slug prüfen: {slug})"
+                self._roster_log.insert(0, log_entry)
+                self._roster_log = self._roster_log[:40]
                 _LOGGER.info(
                     "[IEM Cologne] Roster for %s: %s",
                     team_name,
                     players if players else "(empty – check slug or template)",
                 )
             except Exception as exc:  # noqa: BLE001
+                log_entry = f"❌ {team_name}: {exc}"
+                self._roster_log.insert(0, log_entry)
+                self._roster_log = self._roster_log[:40]
                 _LOGGER.warning(
                     "[IEM Cologne] Could not load roster for %s (slug=%s): %s",
                     team_name, slug, exc,
@@ -581,6 +591,7 @@ class IEMCologneApiClient:
             "total": total,
             "next_idx": self._roster_idx,
             "next_team": self._roster_team_list[self._roster_idx] if self._roster_team_list else None,
+            "log": self._roster_log[:20],
         }
 
     def _get_cached_standings(self, active_stage: str) -> list[dict]:

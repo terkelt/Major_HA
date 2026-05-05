@@ -1,20 +1,24 @@
-title: IEM Cologne Major 2026
+﻿title: IEM Cologne Major 2026
 path: iem-cologne
 icon: mdi:trophy-outline
 cards:
 
-  # === HEADER ===
+  # === HEADER BANNER ===
   - type: markdown
     content: >
-      ## IEM Cologne Major 2026
+      ## 🏆 IEM Cologne Major 2026
 
-      **ESL | LANXESS Arena, Cologne, Germany** | Preisgeld: **1.250.000 USD** | 32 Teams
+      **ESL** · LANXESS Arena, Köln · **1.–21. Juni 2026** · Preisgeld: **$1.250.000** · 32 Teams
 
-      | Stage 1 | Stage 2 | Stage 3 | Playoffs |
-      |:-------:|:-------:|:-------:|:--------:|
-      | 2.-5. Juni | 6.-9. Juni | 11.-15. Juni | 18.-21. Juni |
-      | Challengers | Legends | Champions | Finale |
-      | 16 Teams | 8+8 Teams | 8+8 Teams | 8 Teams |
+      ---
+
+      | | 🔵 Stage 1 | 🟡 Stage 2 | 🔴 Stage 3 | 🏆 Playoffs |
+      |:--|:-------:|:-------:|:-------:|:--------:|
+      | **Datum** | 2.–5. Juni | 6.–9. Juni | 11.–15. Juni | 18.–21. Juni |
+      | **Name** | Challengers | Legends | Champions | Finale |
+      | **Teams** | 16 | 16 (8+8) | 16 (8+8) | 8 |
+      | **Format** | Swiss Bo1/Bo3 | Swiss Bo1/Bo3 | Swiss Bo3 | Single Elim. Bo3/Bo5 |
+      | **Preis** | – | – | – | bis $500.000 |
 
   # === STATUS TILES ===
   - type: grid
@@ -26,184 +30,29 @@ cards:
         name: Aktive Phase
         vertical: true
         icon: mdi:tournament
+        color: indigo
       - type: tile
         entity: sensor.iem_cologne_score_signals
         name: Score-Signale
         vertical: true
-        icon: mdi:scoreboard
+        icon: mdi:scoreboard-outline
+        color: green
       - type: tile
         entity: sensor.iem_cologne_matches_today
         name: Matches heute
         vertical: true
         icon: mdi:calendar-today
+        color: orange
       - type: tile
         entity: sensor.iem_cologne_last_score_change
-        name: Letzte Aenderung
+        name: Letzte Änderung
         vertical: true
         icon: mdi:clock-alert-outline
+        color: deep-purple
 
-  # === TEAMS STAGE 1 + STAGE 2 ===
-  - type: horizontal-stack
-    cards:
-      - type: markdown
-        title: "Stage 1 - Challengers (2.-5. Juni)"
-        content: >
-          **Swiss Bo1 / Elim. Bo3 | 16 Teams | 8 weiter**
-
-
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([], true) %}
-
-          {% if p | count > 0 %}
-
-          {% for t in p %}
-
-          - {{ t }}
-
-          {% endfor %}
-
-          {% else %}
-
-          GamerLegion, B8, HEROIC, BetBoom, BIG, M80, TYLOO, MIBR, SINNERS, NRG,
-          Gaimin Gladiators, Liquid, Lynn Vision, THUNDER dOWNUNDER, FlyQuest, Sharks
-
-          {% endif %}
-
-      - type: markdown
-        title: "Stage 2 - Legends (6.-9. Juni)"
-        content: >
-          **Swiss Bo1 / Elim. Bo3 | 16 Teams | 8 weiter**
-
-
-          **Direct Invites (8):**
-
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([], true) %}
-
-          {% if p | count > 0 %}
-
-          {% for t in p %}
-
-          - {{ t }}
-
-          {% endfor %}
-
-          {% else %}
-
-          FUT, Spirit, Astralis, G2, Legacy, Monte, 9z, paiN
-
-          {% endif %}
-
-
-          **+ 8x TBD** (Aufsteiger Stage 1)
-
-  # === TEAMS STAGE 3 + PLAYOFFS ===
-  - type: horizontal-stack
-    cards:
-      - type: markdown
-        title: "Stage 3 - Champions (11.-15. Juni)"
-        content: >
-          **Swiss Bo3 | 16 Teams | 8 weiter**
-
-
-          **Top Seeds / Direct Invites (8):**
-
-          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([], true) %}
-
-          {% if p | count > 0 %}
-
-          {% for t in p %}
-
-          - {{ t }}
-
-          {% endfor %}
-
-          {% else %}
-
-          Vitality, Natus Vincere, Falcons, The MongolZ, PARIVISION, Aurora, FURIA, MOUZ
-
-          {% endif %}
-
-
-          **+ 8x TBD** (Aufsteiger Stage 2)
-
-      - type: markdown
-        title: "Playoffs & Preisgeld (18.-21. Juni)"
-        content: >
-          **Single Elim. Bo3 / Grand Final Bo5 | 8 Teams**
-
-
-          | Platz | Preisgeld |
-          |-------|-----------|
-          | 1. Platz | **500.000 USD** |
-          | 2. Platz | 170.000 USD |
-          | 3.-4. Platz | je 80.000 USD |
-          | 5.-8. Platz | je 45.000 USD |
-          | 9.-11. Platz | je 20.000 USD |
-          | 12.-16. Platz | je 20.000 USD |
-          | **Gesamt** | **1.250.000 USD** |
-
-
-          **Map Pool:** Dust2, Mirage, Inferno, Nuke, Overpass, Ancient, Anubis
-
-  # === SCORE SIGNALE + BRACKET ===
-  - type: horizontal-stack
-    cards:
-      - type: markdown
-        title: "Live Score-Signale"
-        content: >
-          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([], true) %}
-
-          {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
-
-          {% if changed %}**Neue Signale erkannt!**{% endif %}
-
-          {% if lines | count == 0 %}
-
-          _Noch keine Signale - Turnier beginnt am 2. Juni 2026_
-
-          {% else %}
-
-          **{{ lines | count }} Signale:**
-
-          {% for line in lines[:20] %}
-
-          - {{ line }}
-
-          {% endfor %}
-
-          {% if lines | count > 20 %}_...und {{ lines | count - 20 }} weitere_{% endif %}
-
-          {% endif %}
-
-      - type: markdown
-        title: "Bracket / Playoff-Signale"
-        content: >
-          {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([], true) %}
-
-          {% if bracket | count == 0 %}
-
-          _Keine Bracket-Signale (Playoffs: 18.-21. Juni 2026)_
-
-
-          **Bracket-Format:**
-
-          Quarterfinal -> Halbfinale -> Grand Final (Bo5)
-
-
-          Alle 8 Playoff-Teams stehen nach Stage 3 (15. Juni) fest.
-
-          {% else %}
-
-          {% for line in bracket %}
-
-          - {{ line }}
-
-          {% endfor %}
-
-          {% endif %}
-
-  # === QUELLEN STATUS ===
+  # === DIAGNOSE & STATUS ===
   - type: markdown
-    title: "Quellen & Diagnose"
+    title: "⚙️ Integration Status"
     content: >
       {% set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}, true) %}
 
@@ -213,52 +62,233 @@ cards:
 
       {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) %}
 
-      {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') %}
+      {% set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') | default('', true) %}
 
-      **Letztes Update:** {{ updated | default('unbekannt', true) }}
-      &nbsp;|&nbsp;
-      **Liquipedia:** {{ 'OK' if liq.get('ok') else 'FEHLER' }}
-      &nbsp;|&nbsp;
-      **HLTV:** {{ 'OK' if hltv.get('ok') else ('deaktiviert' if not hltv.get('enabled') else 'FEHLER') }}
-      &nbsp;|&nbsp;
-      **Genutzte URLs:** {{ hltv.get('used_urls', []) | count }}
-      &nbsp;|&nbsp;
-      **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | count }}
+      {% set liq_icon = '🟢' if liq.get('ok') else '🔴' %}
 
-      **Roster:** {{ rs.get('loaded', 0) }}/{{ rs.get('total', 32) }} geladen
-      ({{ rs.get('empty_response', 0) }} leer)
-      · nächstes Team: {{ rs.get('next_team', '?') }}
+      {% set hltv_icon = '🟢' if hltv.get('ok') else ('⚫' if not hltv.get('enabled') else '🔴') %}
+
+      {% set loaded = rs.get('loaded', 0) %}
+
+      {% set total = rs.get('total', 32) %}
+
+      {% set empty = rs.get('empty_response', 0) %}
+
+      {% set roster_pct = ((loaded / total * 100) | round(0)) if total > 0 else 0 %}
+
+      {% set ts = updated[:16] | replace('T', ' ') if updated | length > 15 else updated %}
+
+      | | Status | Details |
+      |---|---|---|
+      | {{ liq_icon }} **Liquipedia** | {{ 'OK' if liq.get('ok') else 'FEHLER' }} | Seite: `{{ liq.get('page', '–') }}` |
+      | {{ hltv_icon }} **HLTV** | {{ 'OK' if hltv.get('ok') else ('deaktiviert' if not hltv.get('enabled') else 'FEHLER') }} | URLs: {{ hltv.get('used_urls', []) | count }} genutzt, {{ hltv.get('dropped_urls', []) | count }} verworfen |
+      | 📋 **Rosters** | {{ loaded }}/{{ total }} ({{ roster_pct }}%) | {{ empty }} leer · Nächstes: **{{ rs.get('next_team', '?') }}** |
+      | 🕐 **Update** | {{ ts | default('–', true) }} | Score-Signale: {{ hltv.get('score_lines_detected', 0) }} · Bracket: {{ hltv.get('bracket_lines_detected', 0) }} |
+
+  # === TEAMS NACH STAGE ===
+  - type: horizontal-stack
+    cards:
+      - type: markdown
+        title: "🔵 Stage 1 – Challengers"
+        content: >
+          **16 Teams · Swiss Bo1/Bo3 · 2.–5. Juni**
+
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([], true) %}
+
+          {% set teams = p if p | count > 0 else ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] %}
+
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+
+          {% for t in teams %}{{ '🟢' if t in rosters else '⚪' }} {{ t }}
+
+          {% endfor %}
+
+      - type: markdown
+        title: "🟡 Stage 2 – Legends"
+        content: >
+          **8 Direct + 8 via S1 · 6.–9. Juni**
+
+          **Direct Invites:**
+
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([], true) %}
+
+          {% set teams = p if p | count > 0 else ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] %}
+
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+
+          {% for t in teams %}{{ '🟢' if t in rosters else '⚪' }} {{ t }}
+
+          {% endfor %}
+
+          **+ 8x TBD** _(Aufsteiger Stage 1)_
+
+      - type: markdown
+        title: "🔴 Stage 3 – Champions"
+        content: >
+          **8 Direct + 8 via S2 · 11.–15. Juni**
+
+          **Top Seeds:**
+
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([], true) %}
+
+          {% set teams = p if p | count > 0 else ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] %}
+
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+
+          {% for t in teams %}{{ '🟢' if t in rosters else '⚪' }} {{ t }}
+
+          {% endfor %}
+
+          **+ 8x TBD** _(Aufsteiger Stage 2)_
 
   # === SWISS STANDINGS ===
   - type: markdown
-    title: "Swiss Standings (aktive Stage)"
+    title: "📊 Swiss Standings – Aktive Stage"
     content: >
       {% set standings = state_attr('sensor.iem_cologne_participants', 'swiss_standings') | default([], true) %}
+
       {% set stage = states('sensor.iem_cologne_phase') %}
+
       {% if standings | count == 0 %}
-      _Keine Standings verfügbar – wird geladen sobald die Stage läuft._
 
-      **Aktuelle Stage:** {{ stage }}
+      _Keine Standings verfügbar – wird geladen sobald eine Stage aktiv ist._
+
+      **Aktuelle Phase:** {{ stage }}
+
       {% else %}
-      **{{ stage }} – {{ standings | count }} Teams:**
 
-      | # | Team | Record | RD | Status |
-      |---|------|--------|----|--------|
-      {% for s in standings %}
-      | {{ s.rank }} | **{{ s.team }}** | {{ s.record }} | {{ s.rd }} | {% if s.status == 'advancing' %}✅ Advancing{% elif s.status == 'eliminated' %}❌ Eliminated{% else %}🟡 Playing{% endif %} |
+      **{{ stage }} · {{ standings | count }} Teams:**
+
+      | # | Team | W–L | RD | Status |
+      |:-:|------|:---:|:--:|:------:|
+      {% for s in standings %}| {{ s.rank }} | **{{ s.team }}** | {{ s.record }} | {{ s.rd }} | {% if s.status == 'advancing' %}✅ Advancing{% elif s.status == 'eliminated' %}❌ Eliminated{% else %}🟡 Playing{% endif %} |
       {% endfor %}
+
       {% endif %}
+
+  # === SIGNALE + BRACKET ===
+  - type: horizontal-stack
+    cards:
+      - type: markdown
+        title: "📡 Live Score-Signale"
+        content: >
+          {% set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([], true) %}
+
+          {% set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') %}
+
+          {% if changed %}**🔔 Neue Ergebnisse erkannt!**
+
+          {% endif %}
+
+          {% if lines | count == 0 %}
+
+          _Keine Signale · Turnier beginnt 2. Juni 2026_
+
+          {% else %}
+
+          **{{ lines | count }} Signale:**
+
+          {% for line in lines[:20] %}- {{ line }}
+
+          {% endfor %}
+
+          {% if lines | count > 20 %}_...+{{ lines | count - 20 }} weitere_{% endif %}
+
+          {% endif %}
+
+      - type: markdown
+        title: "🏆 Bracket / Playoff-Signale"
+        content: >
+          {% set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([], true) %}
+
+          {% if bracket | count == 0 %}
+
+          _Keine Bracket-Signale (Playoffs: 18.–21. Juni)_
+
+          ---
+
+          **Playoff-Format:** QF (Bo3) → SF (Bo3) → Grand Final (Bo5)
+
+          _8 Teams · Alle stehen nach Stage 3 (15. Juni) fest_
+
+          {% else %}
+
+          {% for line in bracket %}- {{ line }}
+
+          {% endfor %}
+
+          {% endif %}
 
   # === TEAM ROSTERS ===
   - type: markdown
-    title: "Team Rosters (werden automatisch geladen)"
+    title: "👥 Team Rosters"
     content: >
       {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
-      {% if rosters | count == 0 %}
-      _Rosters werden geladen (Liquipedia, ein Team alle 5 Minuten)..._
+
+      {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) %}
+
+      {% set loaded = rs.get('loaded', 0) %}
+
+      {% set total = rs.get('total', 32) %}
+
+      {% set pct = ((loaded / total * 100) | round(0)) if total > 0 else 0 %}
+
+      **{{ loaded }}/{{ total }} geladen ({{ pct }}%)** · {{ rs.get('empty_response', 0) }} leer · ⏳ Nächstes: **{{ rs.get('next_team', '?') }}**
+
+      ---
+
+      🔵 **Stage 1 – Challengers**
+
+      {% set s1 = ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] %}
+
+      {% for t in s1 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
+      {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
+      {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
+      {% else %}⚪ **{{ t }}**: _ausstehend_
+      {% endif %}{% endfor %}
+
+      ---
+
+      🟡 **Stage 2 – Legends**
+
+      {% set s2 = ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] %}
+
+      {% for t in s2 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
+      {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
+      {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
+      {% else %}⚪ **{{ t }}**: _ausstehend_
+      {% endif %}{% endfor %}
+
+      ---
+
+      🔴 **Stage 3 – Champions**
+
+      {% set s3 = ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] %}
+
+      {% for t in s3 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
+      {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
+      {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
+      {% else %}⚪ **{{ t }}**: _ausstehend_
+      {% endif %}{% endfor %}
+
+  # === ROSTER FETCH LOG ===
+  - type: markdown
+    title: "📋 Roster Fetch Log"
+    content: >
+      {% set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) %}
+
+      {% set log = rs.get('log', []) %}
+
+      {% if log | count == 0 %}
+
+      _Noch keine Fetch-Ereignisse_
+
+      _Ein Team wird alle ~5 Min geladen (Rate-Limit: 1 req/30s)_
+
       {% else %}
-      {% for team, players in rosters.items() %}
-      **{{ team }}:** {{ players | join(', ') }}
+
+      {% for entry in log %}- {{ entry }}
 
       {% endfor %}
+
       {% endif %}

@@ -81,6 +81,7 @@ SENSOR_DESCRIPTIONS: tuple[IEMCologneSensorDescription, ...] = (
             "team_rosters": data.get("team_rosters", {}),
             "bracket_lines": data.get("bracket_lines", []),
             "swiss_standings": data.get("swiss_standings", []),
+            "roster_status": data.get("roster_status", {}),
         },
     ),
     IEMCologneSensorDescription(
