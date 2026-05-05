@@ -17,5 +17,8 @@ cards:
       - HLTV aktiviert: {{ src.hltv.enabled if src.hltv is defined else 'n/a' }}
       - HLTV OK: {{ src.hltv.ok if src.hltv is defined else 'n/a' }}
       - HLTV Fehler: {{ src.hltv.error if src.hltv is defined else 'n/a' }}
+      - HLTV Strict Filter: {{ src.hltv.strict_filter if src.hltv is defined else 'n/a' }}
+      - HLTV verwendete URLs: {{ (src.hltv.used_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
+      - HLTV verworfene URLs: {{ (src.hltv.dropped_urls or []) | join(' | ') if src.hltv is defined else 'n/a' }}
       - HLTV Teams erkannt: {{ src.hltv.teams_detected if src.hltv is defined else 'n/a' }}
       - HLTV Bracket-Linien: {{ src.hltv.bracket_lines_detected if src.hltv is defined else 'n/a' }}

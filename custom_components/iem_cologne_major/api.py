@@ -26,6 +26,8 @@ _STAGE_LINE_RE = re.compile(
 _SCORE_TOKEN_RE = re.compile(r"\b\d{1,2}\s*[:\-]\s*\d{1,2}\b")
 _HLTV_TEAM_HREF_RE = re.compile(r"^/team/\d+/")
 _ROSTER_LINE_RE = re.compile(r"^([1-5SC])\s+.+\s+([^\s]+)$")
+_COLOGNE_EVENT_KEYWORDS = ("iem cologne major 2026", "cologne, germany")
+_BLOCKED_EVENT_KEYWORDS = ("iem atlanta", "atlanta")
 
 _MAIN_PAGE_CACHE_MINUTES = 3
 _DETAIL_PAGE_CACHE_MINUTES = 20
@@ -153,6 +155,9 @@ class IEMCologneApiClient:
                         "enabled": hltv_signal.get("enabled", False),
                         "ok": hltv_signal.get("ok", False),
                         "error": hltv_signal.get("error"),
+                        "strict_filter": hltv_signal.get("strict_filter", True),
+                        "used_urls": hltv_signal.get("used_urls", []),
+                        "dropped_urls": hltv_signal.get("dropped_urls", []),
                         "teams_detected": len(hltv_signal.get("teams", [])),
                         "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
                     },
@@ -276,6 +281,9 @@ class IEMCologneApiClient:
             "enabled": True,
             "ok": True,
             "error": None,
+            "strict_filter": True,
+            "used_urls": [],
+            "dropped_urls": [],
             "signal_lines": [],
             "bracket_lines": [],
             "teams": [],
@@ -294,9 +302,16 @@ class IEMCologneApiClient:
 
                 soup = BeautifulSoup(html, "html.parser")
                 text = soup.get_text("\n", strip=True)
+                if not self._is_expected_cologne_page(text):
+                    bundle["dropped_urls"].append(url)
+                    continue
+                bundle["used_urls"].append(url)
                 lines.extend(self._extract_score_lines(text))
                 bracket_lines.extend(self._collect_bracket_lines(text))
                 teams.extend(self._extract_hltv_teams(soup))
+
+            if not bundle["used_urls"]:
+                raise RuntimeError("No HLTV Cologne pages passed strict filter")
 
             bundle["signal_lines"] = self._uniq(lines)[:40]
             bundle["bracket_lines"] = self._uniq(bracket_lines)[:32]
@@ -583,6 +598,8 @@ class IEMCologneApiClient:
                 continue
             if any(skip in line for skip in ("Cookie", "viewers", "Privacy", "VRS", "http")):
                 continue
+            if any(block in line.lower() for block in _BLOCKED_EVENT_KEYWORDS):
+                continue
             lines.append(line)
         return lines
 
@@ -591,6 +608,9 @@ class IEMCologneApiClient:
         for raw_line in text.splitlines():
             line = self._clean_text(raw_line)
             if not line or len(line) > 120:
+                continue
+            lower = line.lower()
+            if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
                 continue
             if "Final" in line or "Semifinal" in line or "Quarterfinal" in line:
                 lines.append(line)
@@ -603,6 +623,22 @@ class IEMCologneApiClient:
         return lines
 
     def _extract_hltv_teams(self, soup: BeautifulSoup) -> list[str]:
+        section_heading = self._find_heading_by_text(soup, "Teams attending")
+        if section_heading:
+            scoped_teams: list[str] = []
+            for link in self._collect_section_links(section_heading):
+                href = link.get("href", "")
+                if not _HLTV_TEAM_HREF_RE.match(href):
+                    continue
+                name = self._clean_text(link.get_text(" ", strip=True))
+                if not name or len(name) > 40:
+                    continue
+                if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
+                    continue
+                scoped_teams.append(name)
+            if scoped_teams:
+                return scoped_teams
+
         teams: list[str] = []
         for link in soup.find_all("a"):
             href = link.get("href", "")
@@ -611,8 +647,16 @@ class IEMCologneApiClient:
             name = self._clean_text(link.get_text(" ", strip=True))
             if not name or len(name) > 40:
                 continue
+            if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
+                continue
             teams.append(name)
         return teams
+
+    def _is_expected_cologne_page(self, text: str) -> bool:
+        lower = text.lower()
+        has_expected = any(keyword in lower for keyword in _COLOGNE_EVENT_KEYWORDS)
+        has_blocked = any(keyword in lower for keyword in _BLOCKED_EVENT_KEYWORDS)
+        return has_expected and not has_blocked
 
     def _match_team_line(self, line: str, teams: list[str]) -> str | None:
         normalized = self._clean_text(line)
@@ -729,6 +773,9 @@ class IEMCologneApiClient:
                     "enabled": hltv_signal.get("enabled", False),
                     "ok": hltv_signal.get("ok", False),
                     "error": hltv_signal.get("error"),
+                    "strict_filter": hltv_signal.get("strict_filter", True),
+                    "used_urls": hltv_signal.get("used_urls", []),
+                    "dropped_urls": hltv_signal.get("dropped_urls", []),
                     "teams_detected": len(hltv_signal.get("teams", [])),
                     "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
                 },

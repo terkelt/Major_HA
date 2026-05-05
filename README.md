@@ -32,6 +32,11 @@ Diese Custom-Integration stellt dir im Home Assistant Dashboard alle zentralen D
    - Fuer zusaetzliche Score-Signaltexte und schnellere Erkennung von Aenderungen
    - Keine Live-API erforderlich
 
+3. **PandaScore**
+   - Aktuell **nicht aktiv** in dieser Integration.
+   - Hintergrund: Ohne stabile API-Auth/Rate-Limit-Strategie fuehrte PandaScore in Tests zu unzuverlaessigen Daten.
+   - Fokus ist daher auf Liquipedia + HLTV mit starkem Fallback gelegt.
+
 ## Verifizierte Event-Infos (Stand: 02.05.2026)
 
 Aus den recherchierten Quellen:
@@ -124,3 +129,24 @@ Es gibt jetzt zwei Wege, je nachdem wo du in HA YAML bearbeitest:
 - **Teams gesamt** ist die Summe aus Stage 1/2/3 Teilnehmerlisten.
 - **Team Roster (Auszug)** erscheint nur, wenn aus den Quellen Spielerzeilen robust erkannt werden.
 - **Bracket / Playoffs Signale** sind erkannte K.-o.-Hinweise, keine vollstaendige grafische Bracket-Engine.
+
+## Fehlerbild: "Quellen sind durcheinander" (z. B. Atlanta statt Cologne)
+
+Wenn du vermischte Event-Daten siehst, geh exakt so vor:
+
+1. **Integration-Optionen pruefen**
+   - Einstellungen -> Geraete & Dienste -> IEM Cologne Major -> Konfigurieren
+   - `liquipedia_page` muss sein: `Intel_Extreme_Masters/2026/Cologne`
+   - Speichern.
+
+2. **Integration neu laden**
+   - In derselben Integrationskachel auf "Neu laden".
+
+3. **Source State ansehen**
+   - In der Quellen-Ansicht auf folgende Werte achten:
+   - `HLTV Strict Filter: True`
+   - `HLTV verwendete URLs` zeigt nur Cologne-Event-Links
+   - `HLTV verworfene URLs` zeigt ggf. ausgefilterte falsche Seiten
+
+4. **Browser hart neu laden**
+   - `Strg+F5`, damit keine alte Lovelace-Ansicht gecacht bleibt.
