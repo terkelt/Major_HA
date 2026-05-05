@@ -28,6 +28,7 @@ Diese Custom-Integration stellt dir im Home Assistant Dashboard alle zentralen D
 1. **Liquipedia Counter-Strike API (MediaWiki parse API)**
    - Seite: `Intel_Extreme_Masters/2026/Cologne`
    - Nutzt Turnierstruktur, Stages, Teilnehmer und Ergebnis-Signale
+   - Umsetzung ist auf **MediaWiki API only** gestellt (kein HTML-Endpoint-Scraping)
 2. **HLTV Eventseiten (Signalquelle)**
    - Fuer zusaetzliche Score-Signaltexte und schnellere Erkennung von Aenderungen
    - Keine Live-API erforderlich
@@ -122,6 +123,22 @@ Es gibt jetzt zwei Wege, je nachdem wo du in HA YAML bearbeitest:
 - Stattdessen wird mit kurzem Polling-Intervall gearbeitet. Wegen Rate-Limits ist **5 Minuten** der sinnvolle Default; 1-2 Minuten sollten nur vorsichtig getestet werden.
 - HLTV wurde als Signalquelle beruecksichtigt, kann aber je nach Site-Layout/Consent-Banner weniger strukturierte Daten liefern als Liquipedia.
 - Die Integration ist als Community-Custom-Component gebaut.
+
+### Liquipedia API Terms (relevant fuer Betrieb)
+
+Quelle: https://liquipedia.net/api-terms-of-use
+
+- MediaWiki API allgemein: maximal **1 Request pro 2 Sekunden**.
+- `action=parse`: maximal **1 Request pro 30 Sekunden**.
+- Eigener User-Agent mit Projektidentifikation/Kontakt ist Pflicht.
+- API-Ergebnisse moeglichst lange cachen.
+- Automatisierter Zugriff auf Non-API-Endpunkte ist nicht erlaubt.
+
+Die Integration setzt daher auf:
+
+- API-only Abruf via MediaWiki API
+- Caching + Backoff bei 429
+- eindeutige Source-Diagnose im Dashboard (Policy Mode / Source State)
 
 ### Was das Dashboard konkret bedeutet
 

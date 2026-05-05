@@ -8,7 +8,6 @@ import hashlib
 import logging
 import re
 from typing import Any
-from urllib.parse import quote
 
 from aiohttp import ClientResponseError
 from aiohttp import ClientSession
@@ -30,9 +29,12 @@ _COLOGNE_EVENT_KEYWORDS = ("iem cologne major 2026", "cologne, germany")
 _BLOCKED_EVENT_KEYWORDS = ("iem atlanta", "atlanta")
 
 _MAIN_PAGE_CACHE_MINUTES = 3
-_DETAIL_PAGE_CACHE_MINUTES = 20
 _HLTV_CACHE_MINUTES = 10
 _LIQUIPEDIA_BACKOFF_MINUTES = 15
+_LIQUIPEDIA_USER_AGENT = (
+    "IEMCologneMajorHA/0.1 "
+    "(https://github.com/terkelt/Major_HA/issues; community integration)"
+)
 
 _DEFAULT_STAGE_WINDOWS = [
     {"name": "Stage 1", "start": "2026-06-02", "end": "2026-06-05"},
@@ -150,6 +152,7 @@ class IEMCologneApiClient:
                     "liquipedia": {
                         "page": self._liquipedia_page,
                         "ok": True,
+                        "policy_mode": "mediawiki_api_only",
                     },
                     "hltv": {
                         "enabled": hltv_signal.get("enabled", False),
@@ -182,14 +185,8 @@ class IEMCologneApiClient:
         participants = self._parse_participants(soup)
         team_rosters = self._parse_team_rosters(soup, participants)
         upcoming_matches = self._parse_upcoming_matches(soup)
-        active_stage = self._detect_active_stage(today, stage_windows)
         score_signal_lines = self._extract_score_lines(soup.get_text("\n", strip=True))
-        bracket_lines = await self._async_fetch_liquipedia_bracket_lines()
-
-        detail_page = self._stage_to_detail_page(active_stage)
-        if detail_page:
-            detail_lines = await self._async_fetch_liquipedia_score_lines(detail_page)
-            score_signal_lines.extend(detail_lines)
+        bracket_lines = self._collect_bracket_lines(soup.get_text("\n", strip=True))
 
         return {
             "overview": overview,
@@ -220,7 +217,7 @@ class IEMCologneApiClient:
             "formatversion": 2,
         }
         headers = {
-            "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
+            "User-Agent": _LIQUIPEDIA_USER_AGENT,
         }
 
         try:
@@ -229,16 +226,10 @@ class IEMCologneApiClient:
                 data = await resp.json()
         except ClientResponseError as err:
             if err.status == 429:
-                try:
-                    html = await self._async_fetch_liquipedia_page_render(page)
-                    self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
-                    _LOGGER.warning("Liquipedia API rate limited for page %s, using render fallback", page)
-                    return html
-                except Exception:
-                    self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
-                    if cached:
-                        _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
-                        return cached[1]
+                self._liquipedia_backoff_until = now + timedelta(minutes=_LIQUIPEDIA_BACKOFF_MINUTES)
+                if cached:
+                    _LOGGER.warning("Liquipedia rate limited for page %s, using cached response", page)
+                    return cached[1]
             raise
 
         if "parse" not in data or "text" not in data["parse"]:
@@ -248,29 +239,6 @@ class IEMCologneApiClient:
         self._page_cache[page] = (now + timedelta(minutes=cache_minutes), html)
         self._liquipedia_backoff_until = None
         return html
-
-    async def _async_fetch_liquipedia_page_render(self, page: str) -> str:
-        encoded_page = quote(page, safe="/")
-        url = f"https://liquipedia.net/counterstrike/{encoded_page}?action=render"
-        headers = {
-            "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
-        }
-        async with self._session.get(url, headers=headers, timeout=20) as resp:
-            resp.raise_for_status()
-            return await resp.text()
-
-    async def _async_fetch_liquipedia_score_lines(self, page: str) -> list[str]:
-        try:
-            html = await self._async_fetch_liquipedia_page_html(
-                page,
-                cache_minutes=_DETAIL_PAGE_CACHE_MINUTES,
-            )
-        except Exception:
-            return []
-
-        soup = BeautifulSoup(html, "html.parser")
-        text = soup.get_text("\n", strip=True)
-        return self._uniq(self._extract_score_lines(text))[:40]
 
     async def _async_fetch_hltv_signal(self, active_stage: str) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -482,20 +450,6 @@ class IEMCologneApiClient:
                 rosters[team] = rosters[team][:7]
 
         return rosters
-
-    async def _async_fetch_liquipedia_bracket_lines(self) -> list[str]:
-        page = f"{self._liquipedia_page}/Playoffs"
-        try:
-            html = await self._async_fetch_liquipedia_page_html(
-                page,
-                cache_minutes=_DETAIL_PAGE_CACHE_MINUTES,
-            )
-        except Exception:
-            return []
-
-        soup = BeautifulSoup(html, "html.parser")
-        lines = self._collect_bracket_lines(soup.get_text("\n", strip=True))
-        return self._uniq(lines)[:24]
 
     def _find_heading_by_text(self, soup: BeautifulSoup, needle: str) -> Any | None:
         for heading in soup.find_all(["h2", "h3", "h4"]):
@@ -768,6 +722,7 @@ class IEMCologneApiClient:
                     "page": self._liquipedia_page,
                     "ok": False,
                     "error": liquipedia_error,
+                    "policy_mode": "mediawiki_api_only",
                 },
                 "hltv": {
                     "enabled": hltv_signal.get("enabled", False),

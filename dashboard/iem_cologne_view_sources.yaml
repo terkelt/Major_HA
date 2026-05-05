@@ -14,6 +14,7 @@ cards:
     content: |
       {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
       - Liquipedia OK: {{ src.liquipedia.ok if src.liquipedia is defined else 'n/a' }}
+      - Liquipedia Policy Mode: {{ src.liquipedia.policy_mode if src.liquipedia is defined else 'n/a' }}
       - HLTV aktiviert: {{ src.hltv.enabled if src.hltv is defined else 'n/a' }}
       - HLTV OK: {{ src.hltv.ok if src.hltv is defined else 'n/a' }}
       - HLTV Fehler: {{ src.hltv.error if src.hltv is defined else 'n/a' }}
