@@ -34,13 +34,18 @@ views:
       - type: markdown
         title: Datenmodus
         content: |
+          {% set d = state_attr('sensor.iem_cologne_all_data', 'overview') or {} %}
           {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
           {% set liq_ok = src.liquipedia.ok if src.liquipedia is defined else false %}
+          {% set mode = d.source_mode if d.source_mode is defined else 'unknown' %}
           {% if liq_ok %}
-          Vollmodus: Strukturdaten aktiv (Teams, Stage-Infos, Bracket-Signale)
+          Vollmodus ({{ mode }}): Strukturdaten aktiv (Teams, Stage-Infos, Bracket-Signale)
           {% else %}
-          Fallback-Modus: Liquipedia limitiert, Signal-/Cache-Daten aktiv
+          Fallback-Modus ({{ mode }}): Liquipedia limitiert, Signal-/Cache-Daten aktiv
           {% endif %}
+
+          HLTV Teams erkannt: {{ src.hltv.teams_detected if src.hltv is defined else 'n/a' }}
+          HLTV Bracket-Linien: {{ src.hltv.bracket_lines_detected if src.hltv is defined else 'n/a' }}
 
       - type: gauge
         entity: sensor.iem_cologne_score_signals

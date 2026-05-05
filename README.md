@@ -17,6 +17,8 @@ Diese Custom-Integration stellt dir im Home Assistant Dashboard alle zentralen D
 - Naechstes Match
 - Matches heute
 - Teilnehmer je Stage (Stage 1, Stage 2, Stage 3)
+- Team-Roster (wenn aus Quellen extrahierbar)
+- Bracket-/Playoff-Signale
 - Score-Signale und Aenderungserkennung fuer neue Ergebnisse
 - Letzte erkannte Score-Aenderung als Zeitstempel
 - Vollstaendige Rohdaten als Attribut-Payload fuer eigene Dashboard-Karten
@@ -89,3 +91,10 @@ Enthalten sind drei Views:
 - Stattdessen wird mit kurzem Polling-Intervall gearbeitet. Wegen Rate-Limits ist **5 Minuten** der sinnvolle Default; 1-2 Minuten sollten nur vorsichtig getestet werden.
 - HLTV wurde als Signalquelle beruecksichtigt, kann aber je nach Site-Layout/Consent-Banner weniger strukturierte Daten liefern als Liquipedia.
 - Die Integration ist als Community-Custom-Component gebaut.
+
+### Was das Dashboard konkret bedeutet
+
+- **Datenmodus** zeigt, ob die Integration im Vollmodus (Liquipedia-Strukturdaten) oder im Fallback-/Emergency-Modus (Signal-/Cache-Daten) laeuft.
+- **Teams gesamt** ist die Summe aus Stage 1/2/3 Teilnehmerlisten.
+- **Team Roster (Auszug)** erscheint nur, wenn aus den Quellen Spielerzeilen robust erkannt werden.
+- **Bracket / Playoffs Signale** sind erkannte K.-o.-Hinweise, keine vollstaendige grafische Bracket-Engine.

@@ -82,6 +82,8 @@ class IEMCologneApiClient:
                 "ok": True,
                 "error": None,
                 "signal_lines": [],
+                "bracket_lines": [],
+                "teams": [],
             }
             if self._include_hltv_signal:
                 hltv_signal = await self._async_fetch_hltv_signal(active_stage)
@@ -89,11 +91,12 @@ class IEMCologneApiClient:
             upcoming_matches = liquipedia_data.get("upcoming_matches", [])
             participants = liquipedia_data.get("participants", {})
             if self._participants_count(participants) == 0 and hltv_signal.get("teams"):
-                participants = {
-                    "stage_1": hltv_signal.get("teams", []),
-                    "stage_2": [],
-                    "stage_3": [],
-                }
+                participants = self._participants_from_fallback_teams(hltv_signal.get("teams", []))
+
+            bracket_lines = list(liquipedia_data.get("bracket_lines", []))
+            bracket_lines.extend(hltv_signal.get("bracket_lines", []))
+            bracket_lines = self._uniq(bracket_lines)[:32]
+
             score_lines = list(liquipedia_data.get("score_signal_lines", []))
             score_lines.extend(hltv_signal.get("signal_lines", []))
             score_lines = self._uniq(score_lines)[:80]
@@ -123,34 +126,38 @@ class IEMCologneApiClient:
                 completed_matches = []
 
             payload = {
-            "updated_at": now.isoformat(),
-            "active_stage": active_stage,
-            "overview": liquipedia_data.get("overview", {}),
-            "stage_windows": liquipedia_data.get("stage_windows", []),
-            "participants": participants,
-            "team_rosters": liquipedia_data.get("team_rosters", {}),
-            "bracket_lines": liquipedia_data.get("bracket_lines", []),
-            "upcoming_matches": upcoming_matches,
-            "live_matches": [],
-            "completed_matches": completed_matches,
-            "next_match": next_match,
-            "matches_today": matches_today,
-            "score_change_detected": score_change_detected,
-            "last_score_change": self._last_score_change,
-            "score_signal_lines": score_lines,
-            "sources": {
-                "liquipedia": {
-                    "page": self._liquipedia_page,
-                    "ok": True,
+                "updated_at": now.isoformat(),
+                "active_stage": active_stage,
+                "overview": {
+                    **liquipedia_data.get("overview", {}),
+                    "source_mode": "full" if liquipedia_data.get("participants") else "degraded",
                 },
-                "hltv": {
-                    "enabled": hltv_signal.get("enabled", False),
-                    "ok": hltv_signal.get("ok", False),
-                    "error": hltv_signal.get("error"),
-                    "teams_detected": len(hltv_signal.get("teams", [])),
+                "stage_windows": liquipedia_data.get("stage_windows", []),
+                "participants": participants,
+                "team_rosters": liquipedia_data.get("team_rosters", {}),
+                "bracket_lines": bracket_lines,
+                "upcoming_matches": upcoming_matches,
+                "live_matches": [],
+                "completed_matches": completed_matches,
+                "next_match": next_match,
+                "matches_today": matches_today,
+                "score_change_detected": score_change_detected,
+                "last_score_change": self._last_score_change,
+                "score_signal_lines": score_lines,
+                "sources": {
+                    "liquipedia": {
+                        "page": self._liquipedia_page,
+                        "ok": True,
+                    },
+                    "hltv": {
+                        "enabled": hltv_signal.get("enabled", False),
+                        "ok": hltv_signal.get("ok", False),
+                        "error": hltv_signal.get("error"),
+                        "teams_detected": len(hltv_signal.get("teams", [])),
+                        "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
+                    },
                 },
-            },
-        }
+            }
             self._last_payload = payload
             return payload
         except Exception as err:
@@ -270,10 +277,12 @@ class IEMCologneApiClient:
             "ok": True,
             "error": None,
             "signal_lines": [],
+            "bracket_lines": [],
             "teams": [],
         }
         try:
             lines: list[str] = []
+            bracket_lines: list[str] = []
             teams: list[str] = []
             headers = {
                 "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
@@ -286,9 +295,11 @@ class IEMCologneApiClient:
                 soup = BeautifulSoup(html, "html.parser")
                 text = soup.get_text("\n", strip=True)
                 lines.extend(self._extract_score_lines(text))
+                bracket_lines.extend(self._collect_bracket_lines(text))
                 teams.extend(self._extract_hltv_teams(soup))
 
             bundle["signal_lines"] = self._uniq(lines)[:40]
+            bundle["bracket_lines"] = self._uniq(bracket_lines)[:32]
             bundle["teams"] = self._uniq(teams)[:32]
             self._hltv_cache = (now + timedelta(minutes=_HLTV_CACHE_MINUTES), bundle)
             return bundle
@@ -550,6 +561,18 @@ class IEMCologneApiClient:
     def _participants_count(self, participants: dict[str, Any]) -> int:
         return sum(len(v) for v in participants.values() if isinstance(v, list))
 
+    def _participants_from_fallback_teams(self, teams: list[str]) -> dict[str, list[str]]:
+        # Prefer filling Stage 1 first in fallback mode because this stage has the broadest invite pool.
+        stage_1 = teams[:16]
+        remaining = teams[16:24]
+        stage_2 = remaining[:8]
+        stage_3 = teams[24:32]
+        return {
+            "stage_1": stage_1,
+            "stage_2": stage_2,
+            "stage_3": stage_3,
+        }
+
     def _extract_score_lines(self, text: str) -> list[str]:
         lines: list[str] = []
         for raw_line in text.splitlines():
@@ -664,6 +687,8 @@ class IEMCologneApiClient:
             "ok": False,
             "error": "disabled",
             "signal_lines": [],
+            "bracket_lines": [],
+            "teams": [],
         }
         if self._include_hltv_signal:
             try:
@@ -683,13 +708,9 @@ class IEMCologneApiClient:
                 "source_mode": "emergency",
             },
             "stage_windows": _DEFAULT_STAGE_WINDOWS,
-            "participants": {
-                "stage_1": hltv_signal.get("teams", [])[:16],
-                "stage_2": [],
-                "stage_3": [],
-            },
+            "participants": self._participants_from_fallback_teams(hltv_signal.get("teams", [])),
             "team_rosters": {},
-            "bracket_lines": [],
+            "bracket_lines": hltv_signal.get("bracket_lines", []),
             "upcoming_matches": [],
             "live_matches": [],
             "completed_matches": [{"name": line, "status": "finished"} for line in score_lines],
@@ -709,6 +730,7 @@ class IEMCologneApiClient:
                     "ok": hltv_signal.get("ok", False),
                     "error": hltv_signal.get("error"),
                     "teams_detected": len(hltv_signal.get("teams", [])),
+                    "bracket_lines_detected": len(hltv_signal.get("bracket_lines", [])),
                 },
             },
         }
