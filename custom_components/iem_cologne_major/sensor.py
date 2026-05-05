@@ -75,7 +75,11 @@ SENSOR_DESCRIPTIONS: tuple[IEMCologneSensorDescription, ...] = (
         name="IEM Cologne Participants",
         icon="mdi:account-group",
         value_fn=lambda data: _participants_count(data),
-        attrs_fn=lambda data: data.get("participants", {}),
+        attrs_fn=lambda data: {
+            **data.get("participants", {}),
+            "team_rosters": data.get("team_rosters", {}),
+            "bracket_lines": data.get("bracket_lines", []),
+        },
     ),
     IEMCologneSensorDescription(
         key="all_data",

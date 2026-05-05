@@ -31,6 +31,17 @@ views:
           - entity: sensor.iem_cologne_next_match
           - entity: sensor.iem_cologne_all_data
 
+      - type: markdown
+        title: Datenmodus
+        content: |
+          {% set src = state_attr('sensor.iem_cologne_all_data', 'sources') or {} %}
+          {% set liq_ok = src.liquipedia.ok if src.liquipedia is defined else false %}
+          {% if liq_ok %}
+          Vollmodus: Strukturdaten aktiv (Teams, Stage-Infos, Bracket-Signale)
+          {% else %}
+          Fallback-Modus: Liquipedia limitiert, Signal-/Cache-Daten aktiv
+          {% endif %}
+
       - type: gauge
         entity: sensor.iem_cologne_score_signals
         min: 0
@@ -80,6 +91,30 @@ views:
           {% set p3 = state_attr('sensor.iem_cologne_participants', 'stage_3') or [] %}
           ### Stage 3 ({{ p3 | count }})
           {{ p3 | join(', ') if p3 else 'N/A' }}
+
+      - type: markdown
+        title: Team Roster (Auszug)
+        content: |
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') or {} %}
+          {% if rosters | count == 0 %}
+          Keine Roster-Daten verfuegbar (Quelle aktuell im Fallback oder noch nicht erkannt).
+          {% else %}
+          {% for team, players in rosters.items() %}
+          **{{ team }}**: {{ players | join(', ') if players else 'N/A' }}
+          {% endfor %}
+          {% endif %}
+
+      - type: markdown
+        title: Bracket / Playoffs Signale
+        content: |
+          {% set lines = state_attr('sensor.iem_cologne_participants', 'bracket_lines') or [] %}
+          {% if lines | count == 0 %}
+          Aktuell keine Bracket-Linien erkannt.
+          {% else %}
+          {% for line in lines[:16] %}
+          - {{ line }}
+          {% endfor %}
+          {% endif %}
 
   - title: Quellen
     path: iem-cologne-sources

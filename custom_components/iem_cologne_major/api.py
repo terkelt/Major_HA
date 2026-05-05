@@ -24,6 +24,8 @@ _STAGE_LINE_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _SCORE_TOKEN_RE = re.compile(r"\b\d{1,2}\s*[:\-]\s*\d{1,2}\b")
+_HLTV_TEAM_HREF_RE = re.compile(r"^/team/\d+/")
+_ROSTER_LINE_RE = re.compile(r"^([1-5SC])\s+.+\s+([^\s]+)$")
 
 _MAIN_PAGE_CACHE_MINUTES = 3
 _DETAIL_PAGE_CACHE_MINUTES = 20
@@ -85,6 +87,13 @@ class IEMCologneApiClient:
                 hltv_signal = await self._async_fetch_hltv_signal(active_stage)
 
             upcoming_matches = liquipedia_data.get("upcoming_matches", [])
+            participants = liquipedia_data.get("participants", {})
+            if self._participants_count(participants) == 0 and hltv_signal.get("teams"):
+                participants = {
+                    "stage_1": hltv_signal.get("teams", []),
+                    "stage_2": [],
+                    "stage_3": [],
+                }
             score_lines = list(liquipedia_data.get("score_signal_lines", []))
             score_lines.extend(hltv_signal.get("signal_lines", []))
             score_lines = self._uniq(score_lines)[:80]
@@ -118,7 +127,9 @@ class IEMCologneApiClient:
             "active_stage": active_stage,
             "overview": liquipedia_data.get("overview", {}),
             "stage_windows": liquipedia_data.get("stage_windows", []),
-            "participants": liquipedia_data.get("participants", {}),
+            "participants": participants,
+            "team_rosters": liquipedia_data.get("team_rosters", {}),
+            "bracket_lines": liquipedia_data.get("bracket_lines", []),
             "upcoming_matches": upcoming_matches,
             "live_matches": [],
             "completed_matches": completed_matches,
@@ -136,6 +147,7 @@ class IEMCologneApiClient:
                     "enabled": hltv_signal.get("enabled", False),
                     "ok": hltv_signal.get("ok", False),
                     "error": hltv_signal.get("error"),
+                    "teams_detected": len(hltv_signal.get("teams", [])),
                 },
             },
         }
@@ -156,9 +168,11 @@ class IEMCologneApiClient:
         overview = self._parse_infobox(soup)
         stage_windows = self._parse_stage_windows(soup)
         participants = self._parse_participants(soup)
+        team_rosters = self._parse_team_rosters(soup, participants)
         upcoming_matches = self._parse_upcoming_matches(soup)
         active_stage = self._detect_active_stage(today, stage_windows)
         score_signal_lines = self._extract_score_lines(soup.get_text("\n", strip=True))
+        bracket_lines = await self._async_fetch_liquipedia_bracket_lines()
 
         detail_page = self._stage_to_detail_page(active_stage)
         if detail_page:
@@ -169,6 +183,8 @@ class IEMCologneApiClient:
             "overview": overview,
             "stage_windows": stage_windows,
             "participants": participants,
+            "team_rosters": team_rosters,
+            "bracket_lines": bracket_lines,
             "upcoming_matches": upcoming_matches,
             "score_signal_lines": self._uniq(score_signal_lines)[:60],
         }
@@ -254,9 +270,11 @@ class IEMCologneApiClient:
             "ok": True,
             "error": None,
             "signal_lines": [],
+            "teams": [],
         }
         try:
             lines: list[str] = []
+            teams: list[str] = []
             headers = {
                 "User-Agent": "HomeAssistant-IEMCologneMajor/0.1 (+community project)",
             }
@@ -268,8 +286,10 @@ class IEMCologneApiClient:
                 soup = BeautifulSoup(html, "html.parser")
                 text = soup.get_text("\n", strip=True)
                 lines.extend(self._extract_score_lines(text))
+                teams.extend(self._extract_hltv_teams(soup))
 
             bundle["signal_lines"] = self._uniq(lines)[:40]
+            bundle["teams"] = self._uniq(teams)[:32]
             self._hltv_cache = (now + timedelta(minutes=_HLTV_CACHE_MINUTES), bundle)
             return bundle
         except Exception as err:
@@ -397,6 +417,60 @@ class IEMCologneApiClient:
 
         return matches[:25]
 
+    def _parse_team_rosters(
+        self, soup: BeautifulSoup, participants: dict[str, list[str]]
+    ) -> dict[str, list[str]]:
+        rosters: dict[str, list[str]] = {}
+        mapping = {
+            "Stage 1 Invites": "stage_1",
+            "Stage 2 Invites": "stage_2",
+            "Stage 3 Invites": "stage_3",
+        }
+
+        for section_name, stage_key in mapping.items():
+            heading = self._find_heading_by_text(soup, section_name)
+            if not heading:
+                continue
+
+            stage_teams = participants.get(stage_key, [])
+            if not stage_teams:
+                continue
+
+            current_team: str | None = None
+            for line in self._collect_section_lines(heading):
+                team_match = self._match_team_line(line, stage_teams)
+                if team_match:
+                    current_team = team_match
+                    rosters.setdefault(current_team, [])
+                    continue
+
+                if not current_team:
+                    continue
+
+                player = self._extract_player_from_roster_line(line)
+                if player and player not in rosters[current_team]:
+                    rosters[current_team].append(player)
+
+            # keep only realistic roster size
+            for team in list(rosters):
+                rosters[team] = rosters[team][:7]
+
+        return rosters
+
+    async def _async_fetch_liquipedia_bracket_lines(self) -> list[str]:
+        page = f"{self._liquipedia_page}/Playoffs"
+        try:
+            html = await self._async_fetch_liquipedia_page_html(
+                page,
+                cache_minutes=_DETAIL_PAGE_CACHE_MINUTES,
+            )
+        except Exception:
+            return []
+
+        soup = BeautifulSoup(html, "html.parser")
+        lines = self._collect_bracket_lines(soup.get_text("\n", strip=True))
+        return self._uniq(lines)[:24]
+
     def _find_heading_by_text(self, soup: BeautifulSoup, needle: str) -> Any | None:
         for heading in soup.find_all(["h2", "h3", "h4"]):
             text = self._clean_text(heading.get_text(" ", strip=True))
@@ -473,6 +547,9 @@ class IEMCologneApiClient:
         except Exception:
             return None
 
+    def _participants_count(self, participants: dict[str, Any]) -> int:
+        return sum(len(v) for v in participants.values() if isinstance(v, list))
+
     def _extract_score_lines(self, text: str) -> list[str]:
         lines: list[str] = []
         for raw_line in text.splitlines():
@@ -485,6 +562,55 @@ class IEMCologneApiClient:
                 continue
             lines.append(line)
         return lines
+
+    def _collect_bracket_lines(self, text: str) -> list[str]:
+        lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = self._clean_text(raw_line)
+            if not line or len(line) > 120:
+                continue
+            if "Final" in line or "Semifinal" in line or "Quarterfinal" in line:
+                lines.append(line)
+                continue
+            if "TBD" in line and ("vs" in line.lower() or "Final" in line):
+                lines.append(line)
+                continue
+            if _SCORE_TOKEN_RE.search(line) and "vs" in line.lower():
+                lines.append(line)
+        return lines
+
+    def _extract_hltv_teams(self, soup: BeautifulSoup) -> list[str]:
+        teams: list[str] = []
+        for link in soup.find_all("a"):
+            href = link.get("href", "")
+            if not _HLTV_TEAM_HREF_RE.match(href):
+                continue
+            name = self._clean_text(link.get_text(" ", strip=True))
+            if not name or len(name) > 40:
+                continue
+            teams.append(name)
+        return teams
+
+    def _match_team_line(self, line: str, teams: list[str]) -> str | None:
+        normalized = self._clean_text(line)
+        for team in teams:
+            if normalized == team:
+                return team
+            if normalized.endswith(team):
+                return team
+        return None
+
+    def _extract_player_from_roster_line(self, line: str) -> str | None:
+        normalized = self._clean_text(line)
+        if normalized.startswith("VRS "):
+            return None
+        match = _ROSTER_LINE_RE.match(normalized)
+        if not match:
+            return None
+        player = match.group(2)
+        if player.lower() in {"dnp", "sub"}:
+            return None
+        return player
 
     def _update_score_fingerprint(self, lines: list[str]) -> bool:
         serialized = "\n".join(lines)
@@ -558,10 +684,12 @@ class IEMCologneApiClient:
             },
             "stage_windows": _DEFAULT_STAGE_WINDOWS,
             "participants": {
-                "stage_1": [],
+                "stage_1": hltv_signal.get("teams", [])[:16],
                 "stage_2": [],
                 "stage_3": [],
             },
+            "team_rosters": {},
+            "bracket_lines": [],
             "upcoming_matches": [],
             "live_matches": [],
             "completed_matches": [{"name": line, "status": "finished"} for line in score_lines],
@@ -580,6 +708,7 @@ class IEMCologneApiClient:
                     "enabled": hltv_signal.get("enabled", False),
                     "ok": hltv_signal.get("ok", False),
                     "error": hltv_signal.get("error"),
+                    "teams_detected": len(hltv_signal.get("teams", [])),
                 },
             },
         }
