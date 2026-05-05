@@ -25,8 +25,10 @@ _STAGE_LINE_RE = re.compile(
 _SCORE_TOKEN_RE = re.compile(r"\b\d{1,2}\s*[:\-]\s*\d{1,2}\b")
 _HLTV_TEAM_HREF_RE = re.compile(r"^/team/\d+/")
 _ROSTER_LINE_RE = re.compile(r"^([1-5SC])\s+.+\s+([^\s]+)$")
+_DATE_LIKE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _COLOGNE_EVENT_KEYWORDS = ("iem cologne major 2026", "cologne, germany")
 _BLOCKED_EVENT_KEYWORDS = ("iem atlanta", "atlanta")
+_SKIP_TEAM_NAMES = {"edit", "tbd"}
 
 _MAIN_PAGE_CACHE_MINUTES = 3
 _HLTV_CACHE_MINUTES = 10
@@ -96,13 +98,16 @@ class IEMCologneApiClient:
             participants = liquipedia_data.get("participants", {})
             if self._participants_count(participants) == 0 and hltv_signal.get("teams"):
                 participants = self._participants_from_fallback_teams(hltv_signal.get("teams", []))
+            participants = self._sanitize_participants(participants)
 
             bracket_lines = list(liquipedia_data.get("bracket_lines", []))
             bracket_lines.extend(hltv_signal.get("bracket_lines", []))
+            bracket_lines = self._sanitize_bracket_lines(bracket_lines)
             bracket_lines = self._uniq(bracket_lines)[:32]
 
             score_lines = list(liquipedia_data.get("score_signal_lines", []))
             score_lines.extend(hltv_signal.get("signal_lines", []))
+            score_lines = self._sanitize_score_lines(score_lines)
             score_lines = self._uniq(score_lines)[:80]
 
             completed_matches = [
@@ -378,9 +383,11 @@ class IEMCologneApiClient:
             for link in self._collect_section_links(heading):
                 href = link.get("href", "")
                 text = self._clean_text(link.get_text(" ", strip=True))
-                if not text or not href.startswith("/counterstrike/"):
+                if not text or not self._is_lq_team_link(href):
                     continue
                 if text in {"VRS Europe (Apr. 2026)", "VRS Americas (Apr. 2026)", "VRS Asia (Apr. 2026)"}:
+                    continue
+                if not self._is_valid_team_name(text):
                     continue
                 if text in names:
                     continue
@@ -546,15 +553,8 @@ class IEMCologneApiClient:
         lines: list[str] = []
         for raw_line in text.splitlines():
             line = self._clean_text(raw_line)
-            if not line or len(line) > 120:
-                continue
-            if not _SCORE_TOKEN_RE.search(line):
-                continue
-            if any(skip in line for skip in ("Cookie", "viewers", "Privacy", "VRS", "http")):
-                continue
-            if any(block in line.lower() for block in _BLOCKED_EVENT_KEYWORDS):
-                continue
-            lines.append(line)
+            if self._is_plausible_score_line(line):
+                lines.append(line)
         return lines
 
     def _collect_bracket_lines(self, text: str) -> list[str]:
@@ -565,6 +565,8 @@ class IEMCologneApiClient:
                 continue
             lower = line.lower()
             if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
+                continue
+            if "iem" in lower and "cologne" not in lower:
                 continue
             if "Final" in line or "Semifinal" in line or "Quarterfinal" in line:
                 lines.append(line)
@@ -585,7 +587,7 @@ class IEMCologneApiClient:
                 if not _HLTV_TEAM_HREF_RE.match(href):
                     continue
                 name = self._clean_text(link.get_text(" ", strip=True))
-                if not name or len(name) > 40:
+                if not self._is_valid_team_name(name):
                     continue
                 if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
                     continue
@@ -599,7 +601,7 @@ class IEMCologneApiClient:
             if not _HLTV_TEAM_HREF_RE.match(href):
                 continue
             name = self._clean_text(link.get_text(" ", strip=True))
-            if not name or len(name) > 40:
+            if not self._is_valid_team_name(name):
                 continue
             if any(block in name.lower() for block in _BLOCKED_EVENT_KEYWORDS):
                 continue
@@ -611,6 +613,79 @@ class IEMCologneApiClient:
         has_expected = any(keyword in lower for keyword in _COLOGNE_EVENT_KEYWORDS)
         has_blocked = any(keyword in lower for keyword in _BLOCKED_EVENT_KEYWORDS)
         return has_expected and not has_blocked
+
+    def _is_lq_team_link(self, href: str) -> bool:
+        if not href.startswith("/counterstrike/"):
+            return False
+        if "index.php" in href or "action=" in href or "?" in href or "#" in href:
+            return False
+        tail = href.removeprefix("/counterstrike/")
+        if not tail or ":" in tail:
+            return False
+        return True
+
+    def _is_valid_team_name(self, name: str) -> bool:
+        normalized = self._clean_text(name)
+        if not normalized or len(normalized) > 40:
+            return False
+        if normalized.lower() in _SKIP_TEAM_NAMES:
+            return False
+        if not re.search(r"[A-Za-z]", normalized):
+            return False
+        return True
+
+    def _is_plausible_score_line(self, line: str) -> bool:
+        if not line or len(line) > 120:
+            return False
+        if _DATE_LIKE_RE.search(line):
+            return False
+        if not _SCORE_TOKEN_RE.search(line):
+            return False
+        lower = line.lower()
+        if any(skip in lower for skip in ("cookie", "viewers", "privacy", "vrs", "http", "edit")):
+            return False
+        if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
+            return False
+        # Exclude bare score cells like "1:0" that are not useful match signals.
+        if re.fullmatch(r"\d{1,2}\s*[:\-]\s*\d{1,2}", line):
+            return False
+        if not re.search(r"[A-Za-z]{2,}", line):
+            return False
+        return True
+
+    def _sanitize_participants(self, participants: dict[str, Any]) -> dict[str, list[str]]:
+        sanitized: dict[str, list[str]] = {
+            "stage_1": [],
+            "stage_2": [],
+            "stage_3": [],
+        }
+        for key in sanitized:
+            source = participants.get(key, [])
+            clean = [name for name in source if isinstance(name, str) and self._is_valid_team_name(name)]
+            sanitized[key] = self._uniq(clean)
+        return sanitized
+
+    def _sanitize_score_lines(self, lines: list[str]) -> list[str]:
+        clean: list[str] = []
+        for line in lines:
+            normalized = self._clean_text(line)
+            if self._is_plausible_score_line(normalized):
+                clean.append(normalized)
+        return clean
+
+    def _sanitize_bracket_lines(self, lines: list[str]) -> list[str]:
+        clean: list[str] = []
+        for line in lines:
+            normalized = self._clean_text(line)
+            lower = normalized.lower()
+            if not normalized or len(normalized) > 120:
+                continue
+            if any(block in lower for block in _BLOCKED_EVENT_KEYWORDS):
+                continue
+            if "iem" in lower and "cologne" not in lower:
+                continue
+            clean.append(normalized)
+        return clean
 
     def _match_team_line(self, line: str, teams: list[str]) -> str | None:
         normalized = self._clean_text(line)
