@@ -110,31 +110,73 @@ class HLTVEventClient:
                 result["event_name"] = el.get_text(strip=True)
                 break
 
-        # Teams – collect unique team entries from /team/ID/slug links
+        # Teams – collect unique team entries only from the "Teams attending" section.
+        # Priority: specific HLTV containers → section following "Teams attending" heading
+        # → all-page fallback (capped by the declared team count from the meta table).
         seen_ids: set[str] = set()
         teams: list[dict] = []
-        for a in soup.select('a[href^="/team/"]'):
-            m = _TEAM_HREF_RE.match(a.get("href", ""))
-            if not m:
-                continue
-            tid, slug = m.group(1), m.group(2)
-            if tid in seen_ids:
-                continue
-            name = a.get_text(strip=True)
-            # Filter out navigation noise: team links outside team boxes usually
-            # have short/empty text or link text that matches the slug
-            if not name or len(name) < 2 or name.startswith("#"):
-                name = slug.replace("-", " ").title()
-            seen_ids.add(tid)
-            teams.append({
-                "id": tid,
-                "name": name,
-                "slug": slug,
-                "url": f"{HLTV_BASE}/team/{tid}/{slug}",
-            })
-        result["teams"] = teams
 
-        # Event meta table (start/end date, location, prize pool)
+        def _extract_team_links(container) -> list[dict]:
+            out: list[dict] = []
+            for a in container.select('a[href^="/team/"]'):
+                m2 = _TEAM_HREF_RE.match(a.get("href", ""))
+                if not m2:
+                    continue
+                tid2, slug2 = m2.group(1), m2.group(2)
+                if tid2 in seen_ids:
+                    continue
+                name2 = a.get_text(strip=True)
+                if not name2 or len(name2) < 2 or name2.startswith("#"):
+                    name2 = slug2.replace("-", " ").title()
+                seen_ids.add(tid2)
+                out.append({
+                    "id": tid2,
+                    "name": name2,
+                    "slug": slug2,
+                    "url": f"{HLTV_BASE}/team/{tid2}/{slug2}",
+                })
+            return out
+
+        # 1) Try known HLTV "Teams attending" container selectors
+        for sel in (
+            ".event-hub-teams",
+            ".attended-teams",
+            ".teams-attending",
+            ".event-team-box",
+        ):
+            container = soup.select_one(sel)
+            if container:
+                teams = _extract_team_links(container)
+                if teams:
+                    break
+
+        # 2) If not found, locate the section that follows a "Teams attending" heading
+        if not teams:
+            for heading in soup.find_all(string=re.compile(r"Teams\s+attending", re.I)):
+                parent = heading.find_parent(["div", "section", "article"])
+                if parent:
+                    teams = _extract_team_links(parent)
+                    if teams:
+                        break
+
+        # 3) Last resort: all /team/ links on the page, capped later by declared count
+        if not teams:
+            for a in soup.select('a[href^="/team/"]'):
+                m3 = _TEAM_HREF_RE.match(a.get("href", ""))
+                if not m3:
+                    continue
+                tid3, slug3 = m3.group(1), m3.group(2)
+                if tid3 in seen_ids:
+                    continue
+                name3 = a.get_text(strip=True)
+                if not name3 or len(name3) < 2 or name3.startswith("#"):
+                    name3 = slug3.replace("-", " ").title()
+                seen_ids.add(tid3)
+                teams.append({"id": tid3, "name": name3, "slug": slug3,
+                               "url": f"{HLTV_BASE}/team/{tid3}/{slug3}"})
+
+        # Event meta table (start/end date, location, prize pool, declared team count)
+        declared_team_count: int = 0
         for row in soup.select("table.stats-table tr, .event-info-container tr, table tr"):
             cells = row.select("td")
             if len(cells) >= 2:
@@ -148,6 +190,16 @@ class HLTVEventClient:
                     result["location"] = val
                 elif "prize" in key:
                     result["prize_pool"] = val
+                elif key == "teams":
+                    try:
+                        declared_team_count = int(val)
+                    except ValueError:
+                        pass
+
+        # Cap fallback team list to the declared count (avoids picking up nav noise)
+        if declared_team_count and len(teams) > declared_team_count:
+            teams = teams[:declared_team_count]
+        result["teams"] = teams
 
         # Map pool
         maps: list[str] = []
