@@ -55,6 +55,49 @@ _BRACKET_KEYWORDS = (
     "upper bracket", "lower bracket",
 )
 
+# Roster cache duration
+_ROSTER_CACHE_HOURS = 24
+
+# Liquipedia page slugs for each known team
+# Used for lazy roster fetching (one team per coordinator cycle)
+_LQ_TEAM_SLUGS: dict[str, str] = {
+    # Stage 1
+    "GamerLegion": "GamerLegion",
+    "B8": "B8_(esports_club)",
+    "HEROIC": "HEROIC",
+    "BetBoom": "BetBoom_Team",
+    "BIG": "BIG",
+    "M80": "M80",
+    "TYLOO": "TYLOO",
+    "MIBR": "MIBR",
+    "SINNERS": "SINNERS_Esports",
+    "NRG": "NRG_Esports",
+    "Gaimin Gladiators": "Gaimin_Gladiators",
+    "Liquid": "Team_Liquid",
+    "Lynn Vision": "Lynn_Vision_Gaming",
+    "THUNDER dOWNUNDER": "THUNDER_dOWNUNDER",
+    "FlyQuest": "FlyQuest",
+    "Sharks": "Sharks_Esports",
+    # Stage 2 direct invites
+    "FUT": "FUT_Esports",
+    "Spirit": "Team_Spirit",
+    "Astralis": "Astralis",
+    "G2": "G2_Esports",
+    "Legacy": "Legacy_(Brazilian_organisation)",
+    "Monte": "Monte_(esports)",
+    "9z": "9z_Team",
+    "paiN": "paiN_Gaming",
+    # Stage 3 direct invites
+    "Vitality": "Team_Vitality",
+    "Natus Vincere": "Natus_Vincere",
+    "Falcons": "Team_Falcons",
+    "The MongolZ": "The_MongolZ",
+    "PARIVISION": "PARIVISION",
+    "Aurora": "Aurora_Gaming",
+    "FURIA": "FURIA_Esports",
+    "MOUZ": "MOUZ",
+}
+
 # Noise keywords that indicate a line is NOT a score signal
 _NOISE_KEYWORDS = (
     "cookie", "privacy", "http", "edit", "viewer", "follow",
@@ -89,6 +132,10 @@ class IEMCologneApiClient:
         self._page_cache: dict[str, tuple[datetime, str]] = {}
         self._hltv_cache: tuple[datetime, dict[str, Any]] | None = None
         self._liquipedia_backoff_until: datetime | None = None
+        # Roster fetching state
+        self._roster_cache: dict[str, tuple[datetime, list[str]]] = {}
+        self._roster_team_list: list[str] = list(_LQ_TEAM_SLUGS.keys())
+        self._roster_idx: int = 0
 
     # ------------------------------------------------------------------ #
     #  Public interface                                                    #
@@ -169,7 +216,7 @@ class IEMCologneApiClient:
                 for k, v in TOURNAMENT_BASE["stages"].items()
             },
             "participants": participants,
-            "team_rosters": {},
+            "team_rosters": self._get_cached_rosters(),
             # Live signals
             "score_signal_lines": score_lines,
             "bracket_lines": bracket_lines,
@@ -410,6 +457,81 @@ class IEMCologneApiClient:
             elif has_score and has_team and " vs " in lower:
                 lines.append(line)
         return lines
+
+    # ------------------------------------------------------------------ #
+    #  Roster fetching (Liquipedia, lazy – one team per background call)  #
+    # ------------------------------------------------------------------ #
+
+    def _get_cached_rosters(self) -> dict[str, list[str]]:
+        """Return all currently valid cached rosters."""
+        now = datetime.now(UTC)
+        return {
+            team: players
+            for team, (expires, players) in self._roster_cache.items()
+            if expires > now
+        }
+
+    async def async_fetch_next_roster(self) -> None:
+        """Fetch one team's roster from Liquipedia.
+
+        Intended to be called ~32 seconds after the main update to respect
+        Liquipedia's 1-req/30s rate limit.
+        """
+        now = datetime.now(UTC)
+        teams = self._roster_team_list
+        if not teams:
+            return
+
+        for i in range(len(teams)):
+            idx = (self._roster_idx + i) % len(teams)
+            team_name = teams[idx]
+            cached = self._roster_cache.get(team_name)
+            if cached and cached[0] > now:
+                continue  # still fresh
+
+            # Fetch this team
+            self._roster_idx = (idx + 1) % len(teams)
+            slug = _LQ_TEAM_SLUGS.get(team_name, team_name.replace(" ", "_"))
+            try:
+                html = await self._async_fetch_liquipedia_page_html(
+                    slug, cache_minutes=_ROSTER_CACHE_HOURS * 60
+                )
+                players = self._parse_roster_from_html(html, team_name)
+                self._roster_cache[team_name] = (
+                    now + timedelta(hours=_ROSTER_CACHE_HOURS),
+                    players,
+                )
+                _LOGGER.debug("Fetched roster for %s: %s", team_name, players)
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug("Could not fetch roster for %s: %s", team_name, exc)
+            return  # only fetch one team per call
+
+    def _parse_roster_from_html(self, html: str, team_name: str) -> list[str]:
+        """Extract player names from a Liquipedia team page HTML."""
+        soup = BeautifulSoup(html, "html.parser")
+        players: list[str] = []
+
+        # Liquipedia CS2 team pages: players in .roster-card table
+        # Player link href="/counterstrike/PlayerName" with in-game tag as text
+        for a in soup.select('table.roster-card a[href*="/counterstrike/"]'):
+            name = a.get_text(strip=True)
+            if name and len(name) >= 2 and name not in players:
+                players.append(name)
+            if len(players) >= 5:
+                break
+
+        # Fallback: any player-looking links in the page
+        if not players:
+            for a in soup.select('a[href*="/counterstrike/"]'):
+                href = a.get("href", "")
+                name = a.get_text(strip=True)
+                # Heuristic: player pages are single words or short tags
+                if name and 2 <= len(name) <= 20 and "_" not in name and name not in players:
+                    players.append(name)
+                if len(players) >= 5:
+                    break
+
+        return players
 
     # ------------------------------------------------------------------ #
     #  Utility helpers                                                     #

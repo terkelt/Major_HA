@@ -1,0 +1,125 @@
+title: NODWIN Clutch Series 8 - Closed Qualifier
+path: nodwin-test
+icon: mdi:gamepad-variant-outline
+cards:
+
+  # === HEADER ===
+  - type: markdown
+    content: |
+      ## NODWIN Clutch Series 8 - Closed Qualifier (HLTV Live Test)
+      **Apr 30 - May 6, 2026 | Europe Online | GSL Bo3 + Single Elim. Bo3**
+      Dieses Dashboard ist ein Live-Test der hltv_event Integration.
+
+  # === STATUS TILES ===
+  - type: grid
+    square: false
+    columns: 4
+    cards:
+      - type: tile
+        entity: sensor.hltv_event_status
+        name: Event Name
+        vertical: true
+        icon: mdi:trophy-outline
+      - type: tile
+        entity: sensor.hltv_event_teams
+        name: Teams
+        vertical: true
+        icon: mdi:account-group
+      - type: tile
+        entity: sensor.hltv_event_results
+        name: Ergebnisse
+        vertical: true
+        icon: mdi:scoreboard
+      - type: tile
+        entity: sensor.hltv_event_matches
+        name: Live Matches
+        vertical: true
+        icon: mdi:broadcast
+
+  # === TEAMS + ERGEBNISSE ===
+  - type: horizontal-stack
+    cards:
+      - type: markdown
+        title: Teams (automatisch geladen)
+        content: |
+          {% set teams = state_attr('sensor.hltv_event_teams', 'teams') | default([]) %}
+          {% if teams | count == 0 %}
+          _Teams werden geladen..._
+          {% else %}
+          **{{ teams | count }} Teams:**
+          {% for t in teams %}
+          - {{ t.name }}
+          {% endfor %}
+          {% endif %}
+
+      - type: markdown
+        title: Ergebnisse (Live)
+        content: |
+          {% set results = state_attr('sensor.hltv_event_results', 'results') | default([]) %}
+          {% if results | count == 0 %}
+          _Noch keine Ergebnisse_
+          {% else %}
+          **{{ results | count }} Ergebnisse:**
+          {% for r in results %}
+          **{{ r.team1 }}** {{ r.score1 }} - {{ r.score2 }} **{{ r.team2 }}**
+          {% endfor %}
+          {% endif %}
+
+  # === LIVE + UPCOMING ===
+  - type: horizontal-stack
+    cards:
+      - type: markdown
+        title: Live Matches
+        content: |
+          {% set live = state_attr('sensor.hltv_event_matches', 'live_matches') | default([]) %}
+          {% if live | count == 0 %}
+          _Gerade keine Live Matches_
+          {% else %}
+          {% for m in live %}
+          LIVE: **{{ m.team1 }}** vs **{{ m.team2 }}**
+          {% endfor %}
+          {% endif %}
+
+      - type: markdown
+        title: Upcoming Matches
+        content: |
+          {% set upcoming = state_attr('sensor.hltv_event_matches', 'upcoming_matches') | default([]) %}
+          {% if upcoming | count == 0 %}
+          _Keine anstehenden Matches_
+          {% else %}
+          {% for m in upcoming %}
+          **{{ m.time }}** - {{ m.team1 }} vs {{ m.team2 }}
+          {% endfor %}
+          {% endif %}
+
+  # === TEAM ROSTERS ===
+  - type: markdown
+    title: Team Rosters (ein Team pro Ladezyklus)
+    content: |
+      {% set rosters = state_attr('sensor.hltv_event_teams', 'rosters') | default({}) %}
+      {% if rosters | count == 0 %}
+      _Rosters werden geladen (HLTV team pages)..._
+      {% else %}
+      {% for team, players in rosters.items() %}
+      **{{ team }}:** {{ players | join(', ') }}
+      {% endfor %}
+      {% endif %}
+
+  # === DIAGNOSE ===
+  - type: markdown
+    title: Quellen & Diagnose
+    content: |
+      {% set src = state_attr('sensor.hltv_event_status', 'sources') | default({}) %}
+      {% set ep = src.get('event_page', {}) %}
+      {% set rp = src.get('results_page', {}) %}
+      {% set mp = src.get('matches_page', {}) %}
+      - **Event ID:** {{ state_attr('sensor.hltv_event_status', 'event_id') | default('-') }}
+      - **Location:** {{ state_attr('sensor.hltv_event_status', 'location') | default('-') }}
+      - **Map Pool:** {{ state_attr('sensor.hltv_event_status', 'map_pool') | default([]) | join(', ') }}
+      - **Start:** {{ state_attr('sensor.hltv_event_status', 'start_date') | default('-') }}
+      - **Ende:** {{ state_attr('sensor.hltv_event_status', 'end_date') | default('-') }}
+      - **Letztes Update:** {{ state_attr('sensor.hltv_event_status', 'updated_at') | default('-') }}
+      ---
+      - Event-Seite: {{ 'OK' if ep.get('ok') else 'FEHLER: ' + (ep.get('error') | string) }}
+      - Ergebnisse: {{ 'OK' if rp.get('ok') else 'FEHLER: ' + (rp.get('error') | string) }}
+      - Matches: {{ 'OK' if mp.get('ok') else 'FEHLER: ' + (mp.get('error') | string) }}

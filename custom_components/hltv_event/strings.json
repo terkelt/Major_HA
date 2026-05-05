@@ -1,0 +1,17 @@
+"""Strings for HLTV Event config flow."""
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HLTV Event einrichten",
+        "data": {
+          "event_url": "HLTV Event URL (z.B. https://www.hltv.org/events/9161/...)",
+          "update_interval": "Update-Intervall (Minuten)"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Ungueltige HLTV Event URL. Muss das Format https://www.hltv.org/events/ID/name haben."
+    }
+  }
+}

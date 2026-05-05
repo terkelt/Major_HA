@@ -222,3 +222,17 @@ cards:
       **Genutzte URLs:** {{ hltv.get('used_urls', []) | count }}
       &nbsp;|&nbsp;
       **Verworfene URLs:** {{ hltv.get('dropped_urls', []) | count }}
+
+  # === TEAM ROSTERS ===
+  - type: markdown
+    title: "Team Rosters (werden automatisch geladen)"
+    content: >
+      {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}) %}
+      {% if rosters | count == 0 %}
+      _Rosters werden geladen (Liquipedia, ein Team alle 5 Minuten)..._
+      {% else %}
+      {% for team, players in rosters.items() %}
+      **{{ team }}:** {{ players | join(', ') }}
+
+      {% endfor %}
+      {% endif %}
