@@ -165,7 +165,7 @@ cards:
 
       ---
       🔵 **Stage 1 – Challengers**
-      {%- set s1 = ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] -%}
+      {% set s1 = ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] %}
       {% for t in s1 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
       {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
       {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
@@ -173,7 +173,7 @@ cards:
       {% endif %}{% endfor %}
       ---
       🟡 **Stage 2 – Legends**
-      {%- set s2 = ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] -%}
+      {% set s2 = ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] %}
       {% for t in s2 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
       {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
       {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
@@ -181,7 +181,7 @@ cards:
       {% endif %}{% endfor %}
       ---
       🔴 **Stage 3 – Champions**
-      {%- set s3 = ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] -%}
+      {% set s3 = ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] %}
       {% for t in s3 %}{% if t in rosters and rosters[t] | count > 0 %}🟢 **{{ t }}**: {{ rosters[t] | join(' · ') }}
       {% elif t in rosters %}⚠️ **{{ t }}**: _(keine Spieler – Slug prüfen)_
       {% elif rs.get('next_team') == t %}⏳ **{{ t }}**: _wird geladen..._
