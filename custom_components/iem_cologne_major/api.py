@@ -11,7 +11,13 @@ from typing import Any
 from aiohttp import ClientResponseError, ClientSession
 from bs4 import BeautifulSoup
 
-from .const import HARDCODED_ROSTERS, HLTV_EVENT_URLS, LIQUIPEDIA_API_URL, TOURNAMENT_BASE
+from .const import (
+    HARDCODED_ROSTERS,
+    HLTV_EVENT_URLS,
+    INTEGRATION_VERSION,
+    LIQUIPEDIA_API_URL,
+    TOURNAMENT_BASE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -228,6 +234,7 @@ class IEMCologneApiClient:
         # --- Build payload ----------------------------------------------
         payload: dict[str, Any] = {
             "updated_at": now.isoformat(),
+            "integration_version": INTEGRATION_VERSION,
             "active_stage": active_stage,
             # Authoritative tournament info (hardcoded)
             "tournament": {
@@ -253,6 +260,7 @@ class IEMCologneApiClient:
             "participants": participants,
             "team_rosters": self._get_cached_rosters(),
             "roster_status": self._get_roster_status(),
+            "hardcoded_rosters_count": len(HARDCODED_ROSTERS),
             "swiss_standings": self._get_cached_standings(active_stage),
             # Live signals
             "score_signal_lines": score_lines,
@@ -503,13 +511,17 @@ class IEMCologneApiClient:
     # ------------------------------------------------------------------ #
 
     def _get_cached_rosters(self) -> dict[str, list[str]]:
-        """Return all currently valid cached rosters."""
+        """Return rosters with hardcoded fallback plus valid live-cache overlay."""
         now = datetime.now(UTC)
-        return {
-            team: players
-            for team, (expires, players) in self._roster_cache.items()
-            if expires > now
+        rosters: dict[str, list[str]] = {
+            team: list(players)
+            for team, players in HARDCODED_ROSTERS.items()
+            if players
         }
+        for team, (expires, players) in self._roster_cache.items():
+            if expires > now and players:
+                rosters[team] = players
+        return rosters
 
     async def async_fetch_next_roster(self) -> None:
         """Background fetch: ONE Liquipedia request per call.
