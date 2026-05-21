@@ -54,8 +54,12 @@ cards:
       {%- set d = state_attr('sensor.iem_cologne_all_data', 'sources') | default({}, true) -%}
       {%- set liq = d.get('liquipedia', {}) -%}
       {%- set hltv = d.get('hltv', {}) -%}
-      {%- set rs = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) -%}
+      {%- set rs_all = state_attr('sensor.iem_cologne_all_data', 'roster_status') | default({}, true) -%}
+      {%- set rs_part = state_attr('sensor.iem_cologne_participants', 'roster_status') | default({}, true) -%}
+      {%- set rs = rs_all if rs_all | count > 0 else rs_part -%}
       {%- set updated = state_attr('sensor.iem_cologne_all_data', 'updated_at') | default('', true) -%}
+      {%- set version = state_attr('sensor.iem_cologne_all_data', 'integration_version') | default('unbekannt', true) -%}
+      {%- set hardcoded = state_attr('sensor.iem_cologne_all_data', 'hardcoded_rosters_count') | default(0, true) -%}
       {%- set liq_icon = '🟢' if liq.get('ok') else '🔴' -%}
       {%- set hltv_icon = '🟢' if hltv.get('ok') else ('⚫' if not hltv.get('enabled') else '🔴') -%}
       {%- set loaded = rs.get('loaded', 0) -%}
@@ -67,29 +71,30 @@ cards:
       | {{ liq_icon }} **Liquipedia** | {{ 'OK' if liq.get('ok') else 'FEHLER' }} | Seite: `{{ liq.get('page', '–') }}` |
       | {{ hltv_icon }} **HLTV** | {{ 'OK' if hltv.get('ok') else ('deaktiviert' if not hltv.get('enabled') else 'FEHLER') }} | {{ hltv.get('used_urls', []) | count }} URLs · {{ hltv.get('dropped_urls', []) | count }} verworfen |
       | 📋 **Rosters** | {{ loaded }}/{{ total }} ({{ roster_pct }}%) | {{ rs.get('empty_response', 0) }} leer · Nächstes: **{{ rs.get('next_team', '?') }}** |
+      | 🧩 **Build** | v{{ version }} | Hardcoded: {{ hardcoded }} Teams |
       | 🕐 **Update** | {{ ts | default('–', true) }} | Signale: {{ hltv.get('score_lines_detected', 0) }} · Bracket: {{ hltv.get('bracket_lines_detected', 0) }} |
 
   # === TEAMS NACH STAGE ===
-  - type: horizontal-stack
+  - type: vertical-stack
     cards:
       - type: markdown
         title: "🔵 Stage 1 – Challengers"
         content: |
           **16 Teams · Swiss Bo1/Bo3 · 2.–5. Juni**
-          {%- set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([], true) -%}
-          {%- set teams = p if p | count > 0 else ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] -%}
-          {%- set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) -%}
-          {% for t in teams %}● {{ t }}{% if t in rosters %} 🟢{% endif %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_1') | default([], true) %}
+          {% set teams = p if p | count > 0 else ['GamerLegion','B8','HEROIC','BetBoom','BIG','M80','TYLOO','MIBR','SINNERS','NRG','Gaimin Gladiators','Liquid','Lynn Vision','THUNDER dOWNUNDER','FlyQuest','Sharks'] %}
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+          {% for t in teams %}{% if t in rosters %}🟢{% else %}⚪{% endif %} {{ t }}
           {% endfor %}
       - type: markdown
         title: "🟡 Stage 2 – Legends"
         content: |
           **8 Direct + 8 via S1 · 6.–9. Juni**
           **Direct Invites:**
-          {%- set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([], true) -%}
-          {%- set teams = p if p | count > 0 else ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] -%}
-          {%- set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) -%}
-          {% for t in teams %}● {{ t }}{% if t in rosters %} 🟢{% endif %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_2') | default([], true) %}
+          {% set teams = p if p | count > 0 else ['FUT','Spirit','Astralis','G2','Legacy','Monte','9z','paiN'] %}
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+          {% for t in teams %}{% if t in rosters %}🟢{% else %}⚪{% endif %} {{ t }}
           {% endfor %}
           **+ 8x TBD** _(Aufsteiger Stage 1)_
       - type: markdown
@@ -97,10 +102,10 @@ cards:
         content: |
           **8 Direct + 8 via S2 · 11.–15. Juni**
           **Top Seeds:**
-          {%- set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([], true) -%}
-          {%- set teams = p if p | count > 0 else ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] -%}
-          {%- set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) -%}
-          {% for t in teams %}● {{ t }}{% if t in rosters %} 🟢{% endif %}
+          {% set p = state_attr('sensor.iem_cologne_participants', 'stage_3') | default([], true) %}
+          {% set teams = p if p | count > 0 else ['Vitality','Natus Vincere','Falcons','The MongolZ','PARIVISION','Aurora','FURIA','MOUZ'] %}
+          {% set rosters = state_attr('sensor.iem_cologne_participants', 'team_rosters') | default({}, true) %}
+          {% for t in teams %}{% if t in rosters %}🟢{% else %}⚪{% endif %} {{ t }}
           {% endfor %}
           **+ 8x TBD** _(Aufsteiger Stage 2)_
 
