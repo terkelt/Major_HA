@@ -496,9 +496,15 @@ class IEMCologneApiClient:
     async def async_fetch_next_roster(self) -> None:
         """Background fetch: Swiss standings (if stale) first, then one team roster.
 
-        Called ~32 seconds after each main coordinator update to respect
-        Liquipedia's 1-req/30s rate limit.  Only ONE request is made per call.
+        Called every 5 minutes from async_track_time_interval in __init__.py.
+        Only ONE Liquipedia request is made per call.
         """
+        _LOGGER.warning(
+            "[IEM Cologne] async_fetch_next_roster called – idx=%d loaded=%d/%d",
+            self._roster_idx,
+            sum(1 for c in self._roster_cache.values() if c[1]),
+            len(self._roster_team_list),
+        )
         now = datetime.now(UTC)
         today = now.date()
         active_stage = self._detect_active_stage(today)

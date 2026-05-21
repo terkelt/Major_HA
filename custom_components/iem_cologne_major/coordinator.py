@@ -77,9 +77,4 @@ class IEMCologneDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return self.data
             raise UpdateFailed(f"Failed to update IEM Cologne data: {err}") from err
 
-        # Schedule one background roster fetch 32 s later (respects Liquipedia
-        # 1-req/30s limit; the main page fetch just ran, so we wait a cycle).
-        self.hass.loop.call_later(32, lambda: self.hass.async_create_task(
-            self.api.async_fetch_next_roster()
-        ))
         return data
