@@ -156,6 +156,9 @@ class IEMCologneApiClient:
         self._roster_log: list[str] = []  # recent fetch events, newest first
         # Swiss standings cache: stage_name -> (expires_at, standings_list)
         self._standings_cache: dict[str, tuple[datetime, list[dict]]] = {}
+        # Background fetch counter – alternates between standings and rosters
+        # so rosters still load during active stages where a stage subpage exists.
+        self._bg_tick: int = 0
 
     # ------------------------------------------------------------------ #
     #  Public interface                                                    #
@@ -494,49 +497,93 @@ class IEMCologneApiClient:
         }
 
     async def async_fetch_next_roster(self) -> None:
-        """Background fetch: Swiss standings (if stale) first, then one team roster.
+        """Background fetch: ONE Liquipedia request per call.
 
-        Called every 5 minutes from async_track_time_interval in __init__.py.
-        Only ONE Liquipedia request is made per call.
+        Alternates between Swiss standings and team rosters so that during an
+        active stage rosters still load (otherwise standings would consume every
+        tick).  Called every 5 minutes from async_track_time_interval.
         """
+        self._bg_tick += 1
+        tick = self._bg_tick
+        loaded_count = sum(
+            1 for (_exp, pl) in self._roster_cache.values() if pl
+        )
         _LOGGER.warning(
-            "[IEM Cologne] async_fetch_next_roster called – idx=%d loaded=%d/%d",
+            "[IEM Cologne] async_fetch_next_roster called – tick=%d idx=%d loaded=%d/%d",
+            tick,
             self._roster_idx,
-            sum(1 for c in self._roster_cache.values() if c[1]),
+            loaded_count,
             len(self._roster_team_list),
         )
         now = datetime.now(UTC)
         today = now.date()
         active_stage = self._detect_active_stage(today)
-
-        # 1) Fetch Swiss standings for the active stage if stale --------
         stage_subpage = _STAGE_LQ_SUBPAGES.get(active_stage)
-        if stage_subpage:
-            cached_st = self._standings_cache.get(active_stage)
-            if not cached_st or cached_st[0] <= now:
-                n_advance = _STAGE_ADVANCE_COUNT.get(active_stage, 8)
-                try:
-                    html = await self._async_fetch_liquipedia_page_html(
-                        stage_subpage, cache_minutes=_MAIN_PAGE_CACHE_MINUTES
-                    )
-                    standings = self._parse_swiss_standings(html, n_advance)
-                    self._standings_cache[active_stage] = (
-                        now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES),
-                        standings,
-                    )
-                    _LOGGER.debug(
-                        "Swiss standings for %s: %d entries", active_stage, len(standings)
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    # Page may not exist yet (pre-tournament); keep last known data
-                    self._standings_cache.setdefault(
-                        active_stage,
-                        (now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES), []),
-                    )
-                    _LOGGER.debug("Standings fetch skipped for %s: %s", active_stage, exc)
-                return  # one request per background call
 
-        # 2) Fetch next team's roster -----------------------------------
+        # Decide what to do this tick
+        # - even ticks (2, 4, ...) → standings (if active stage has a subpage and stale)
+        # - odd ticks (1, 3, ...)  → roster
+        # - if no stage subpage at all → always roster
+        # - if no rosters left to fetch → standings
+        rosters_outstanding = self._has_outstanding_rosters(now)
+        prefer_standings = (
+            stage_subpage is not None
+            and self._standings_stale(active_stage, now)
+            and (tick % 2 == 0 or not rosters_outstanding)
+        )
+
+        if prefer_standings:
+            await self._fetch_swiss_standings(active_stage, stage_subpage, now)
+            return
+
+        if rosters_outstanding:
+            await self._fetch_one_roster(now)
+            return
+
+        # Nothing fresh to do; opportunistically refresh standings if stale
+        if stage_subpage is not None and self._standings_stale(active_stage, now):
+            await self._fetch_swiss_standings(active_stage, stage_subpage, now)
+
+    def _standings_stale(self, active_stage: str, now: datetime) -> bool:
+        cached = self._standings_cache.get(active_stage)
+        return not cached or cached[0] <= now
+
+    def _has_outstanding_rosters(self, now: datetime) -> bool:
+        """True if at least one team still needs (or could use) a roster fetch."""
+        if not self._roster_team_list:
+            return False
+        for team in self._roster_team_list:
+            cached = self._roster_cache.get(team)
+            if not cached or cached[0] <= now:
+                return True
+        return False
+
+    async def _fetch_swiss_standings(
+        self, active_stage: str, stage_subpage: str, now: datetime
+    ) -> None:
+        n_advance = _STAGE_ADVANCE_COUNT.get(active_stage, 8)
+        cached_st = self._standings_cache.get(active_stage)
+        try:
+            html = await self._async_fetch_liquipedia_page_html(
+                stage_subpage, cache_minutes=_MAIN_PAGE_CACHE_MINUTES
+            )
+            standings = self._parse_swiss_standings(html, n_advance)
+            self._standings_cache[active_stage] = (
+                now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES),
+                standings,
+            )
+            _LOGGER.debug(
+                "Swiss standings for %s: %d entries", active_stage, len(standings)
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Page may not exist yet (pre-tournament); keep last known data
+            self._standings_cache[active_stage] = (
+                now + timedelta(minutes=_MAIN_PAGE_CACHE_MINUTES),
+                cached_st[1] if cached_st else [],
+            )
+            _LOGGER.debug("Standings fetch skipped for %s: %s", active_stage, exc)
+
+    async def _fetch_one_roster(self, now: datetime) -> None:
         teams = self._roster_team_list
         if not teams:
             return
