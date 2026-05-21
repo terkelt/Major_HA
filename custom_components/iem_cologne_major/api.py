@@ -11,7 +11,7 @@ from typing import Any
 from aiohttp import ClientResponseError, ClientSession
 from bs4 import BeautifulSoup
 
-from .const import HLTV_EVENT_URLS, LIQUIPEDIA_API_URL, TOURNAMENT_BASE
+from .const import HARDCODED_ROSTERS, HLTV_EVENT_URLS, LIQUIPEDIA_API_URL, TOURNAMENT_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -154,6 +154,18 @@ class IEMCologneApiClient:
         self._roster_team_list: list[str] = list(_LQ_TEAM_SLUGS.keys())
         self._roster_idx: int = 0
         self._roster_log: list[str] = []  # recent fetch events, newest first
+        # Pre-populate cache with hardcoded rosters so the dashboard shows data
+        # immediately at startup. Liquipedia background fetches will refresh
+        # these entries when they succeed (best-effort).
+        _hc_now = datetime.now(UTC)
+        _hc_expiry = _hc_now + timedelta(hours=_ROSTER_CACHE_HOURS)
+        for _team, _players in HARDCODED_ROSTERS.items():
+            if _team in _LQ_TEAM_SLUGS and _players:
+                self._roster_cache[_team] = (_hc_expiry, list(_players))
+        if self._roster_cache:
+            self._roster_log.append(
+                f"ℹ️ Hardcoded rosters loaded: {len(self._roster_cache)} Teams"
+            )
         # Swiss standings cache: stage_name -> (expires_at, standings_list)
         self._standings_cache: dict[str, tuple[datetime, list[dict]]] = {}
         # Background fetch counter – alternates between standings and rosters
@@ -321,7 +333,10 @@ class IEMCologneApiClient:
             "format": "json",
             "formatversion": 2,
         }
-        headers = {"User-Agent": _LIQUIPEDIA_USER_AGENT}
+        headers = {
+            "User-Agent": _LIQUIPEDIA_USER_AGENT,
+            "Accept-Encoding": "gzip",  # required by Liquipedia API ToS
+        }
 
         try:
             async with self._session.get(
@@ -777,7 +792,10 @@ class IEMCologneApiClient:
             "format": "json",
             "formatversion": 2,
         }
-        headers = {"User-Agent": _LIQUIPEDIA_USER_AGENT}
+        headers = {
+            "User-Agent": _LIQUIPEDIA_USER_AGENT,
+            "Accept-Encoding": "gzip",  # required by Liquipedia API ToS
+        }
 
         try:
             async with self._session.get(

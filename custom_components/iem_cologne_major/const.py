@@ -91,3 +91,47 @@ TOURNAMENT_BASE: dict = {
         },
     },
 }
+
+
+# Hardcoded active rosters as of 2026-05-21, extracted from the Liquipedia
+# tournament page (Intel_Extreme_Masters/2026/Cologne) in a single request.
+# Keys must match the team names used in TOURNAMENT_BASE (the short form).
+# These are loaded immediately at startup so the dashboard always shows rosters,
+# and may be refreshed in the background from Liquipedia (best effort).
+HARDCODED_ROSTERS: dict[str, list[str]] = {
+    # Stage 1 (Challengers)
+    "GamerLegion": ["Tauson", "PR", "REZ", "hypex", "Snax"],
+    "B8": ["npl", "esenthial", "alex666", "kensizor", "s1zzi"],
+    "HEROIC": ["yxngstxr", "xfl0ud", "nilo", "Chr1zN", "susp"],
+    "BetBoom": ["s1ren", "zorte", "Magnojez", "Boombl4", "FL4MUS"],
+    "BIG": ["tabseN", "JDC", "gr1ks", "blameF", "faveN"],
+    "M80": ["Swisher", "slaxz-", "s1n", "Lake", "JBa"],
+    "TYLOO": ["JamYoung", "Moseyuh", "Mercury", "Jee", "zero"],
+    "MIBR": ["brnz4n", "insani", "kl1m", "LNZ", "venomzera"],
+    "SINNERS": ["beastik", "SHOCK", "kisserek", "stressarN", "MoDo"],
+    "NRG": ["oSee", "nitr0", "br0", "Sonic", "Grim"],
+    "Gaimin Gladiators": ["JOTA", "NEKIZ", "felps", "HEN1", "Luken"],
+    "Liquid": ["NAF", "ultimate", "siuhy", "EliGE", "malbsMd"],
+    "Lynn Vision": ["westmelon", "z4kr", "EmiliaQAQ", "Starry", "C4LLM3SU3"],
+    "THUNDER dOWNUNDER": ["asap", "TjP", "aliStair", "dexter", "Liazz"],
+    "FlyQuest": ["INS", "Vexite", "nettik", "jks", "story"],
+    "Sharks": ["gafolo", "rdnzao", "doc", "koala", "maxxkor"],
+    # Stage 2 (Legends) – direct invites
+    "FUT": ["dem0n", "Krabeni", "cmtry", "dziugss", "lauNX"],
+    "Spirit": ["magixx", "zont1x", "donk", "sh1ro", "tN1R"],
+    "Astralis": ["Staehr", "jabbi", "HooXi", "phzy", "ryu"],
+    "G2": ["huNter-", "HeavyGod", "SunPayus", "matys", "NertZ"],
+    "Legacy": ["latto", "dumau", "saadzin", "n1ssim", "arT"],
+    "Monte": ["Gizmy", "afro", "AZUWU", "Bymas", "Rainwaker"],
+    "9z": ["max", "HUASOPEEK", "luchov", "meyern", "dgt"],
+    "paiN": ["biguzera", "nqz", "snow", "piriajr", "v$m"],
+    # Stage 3 (Champions) – direct invites
+    "Vitality": ["apEX", "ZywOo", "flameZ", "mezii", "ropz"],
+    "Natus Vincere": ["b1t", "Aleksib", "iM", "w0nderful", "makazze"],
+    "Falcons": ["NiKo", "TeSeS", "kyxsan", "m0NESY", "kyousuke"],
+    "The MongolZ": ["bLitz", "Techno4K", "910", "mzinho", "cobrazera"],
+    "PARIVISION": ["BELCHONOKK", "Jame", "nota", "xiELO", "zweih"],
+    "Aurora": ["XANTARES", "MAJ3R", "Wicadia", "woxic", "soulfly"],
+    "FURIA": ["yuurih", "KSCERATO", "FalleN", "molodoy", "YEKINDAR"],
+    "MOUZ": ["torzsi", "xertioN", "Jimpphat", "Brollan", "Spinx"],
+}
