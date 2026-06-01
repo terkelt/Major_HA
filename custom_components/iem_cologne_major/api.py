@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 import hashlib
 import logging
 import re
@@ -112,6 +112,44 @@ _STAGE_LQ_SUBPAGES: dict[str, str] = {
     "Stage 1": "Intel_Extreme_Masters/2026/Cologne/Stage_1",
     "Stage 2": "Intel_Extreme_Masters/2026/Cologne/Stage_2",
     "Stage 3": "Intel_Extreme_Masters/2026/Cologne/Stage_3",
+    "Playoffs": "Intel_Extreme_Masters/2026/Cologne/Playoffs",
+}
+
+# Common Liquipedia short aliases used by TeamOpponent templates
+_TEAM_ALIAS_MAP: dict[str, str] = {
+    "vit": "Vitality",
+    "navi": "Natus Vincere",
+    "fal": "Falcons",
+    "mongolz": "The MongolZ",
+    "parivision": "PARIVISION",
+    "aur": "Aurora",
+    "furia": "FURIA",
+    "mouz": "MOUZ",
+    "fut": "FUT",
+    "spirit": "Spirit",
+    "ast": "Astralis",
+    "g2": "G2",
+    "legacy": "Legacy",
+    "monte": "Monte",
+    "9z": "9z",
+    "pain": "paiN",
+    "gl": "GamerLegion",
+    "b8": "B8",
+    "heroic": "HEROIC",
+    "betboom": "BetBoom",
+    "big": "BIG",
+    "m80": "M80",
+    "tyloo": "TYLOO",
+    "mibr": "MIBR",
+    "sinners": "SINNERS",
+    "nrg": "NRG",
+    "gg": "Gaimin Gladiators",
+    "tl": "Liquid",
+    "liquid": "Liquid",
+    "lvg": "Lynn Vision",
+    "tdu": "THUNDER dOWNUNDER",
+    "fly": "FlyQuest",
+    "sharks": "Sharks",
 }
 
 # How many teams advance from each Swiss stage
@@ -231,6 +269,19 @@ class IEMCologneApiClient:
         if score_changed:
             self._last_score_change = now.isoformat()
 
+        # --- Match extraction (Liquipedia stage pages) ------------------
+        upcoming_matches, live_matches, completed_matches = await self._async_fetch_matches(
+            active_stage,
+            now,
+        )
+        next_match = self._pick_next_match(upcoming_matches)
+        matches_today = self._count_matches_today(
+            now.date(),
+            upcoming_matches,
+            live_matches,
+            completed_matches,
+        )
+
         # --- Build payload ----------------------------------------------
         payload: dict[str, Any] = {
             "updated_at": now.isoformat(),
@@ -266,11 +317,11 @@ class IEMCologneApiClient:
             "score_signal_lines": score_lines,
             "bracket_lines": bracket_lines,
             # Match state
-            "upcoming_matches": [],
-            "live_matches": [],
-            "completed_matches": [],
-            "next_match": None,
-            "matches_today": 0,
+            "upcoming_matches": upcoming_matches,
+            "live_matches": live_matches,
+            "completed_matches": completed_matches,
+            "next_match": next_match,
+            "matches_today": matches_today,
             # Change detection
             "score_change_detected": score_changed,
             "last_score_change": self._last_score_change,
@@ -295,6 +346,227 @@ class IEMCologneApiClient:
         }
         self._last_payload = payload
         return payload
+
+    async def _async_fetch_matches(
+        self,
+        active_stage: str,
+        now: datetime,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Fetch and classify matches from the current (or upcoming) stage page."""
+        pages = self._match_pages_for_stage(active_stage)
+        if not pages:
+            return [], [], []
+
+        matches: list[dict[str, Any]] = []
+        for page in pages:
+            try:
+                wikitext = await self._async_fetch_liquipedia_wikitext(page)
+                matches.extend(self._parse_matches_from_wikitext(wikitext, page))
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug("Match fetch failed for %s: %s", page, exc)
+
+        if not matches:
+            return [], [], []
+
+        # Deduplicate by stage + teams + begin_at + raw date
+        dedup: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+        for m in matches:
+            key = (
+                m.get("stage", ""),
+                m.get("team1", ""),
+                m.get("team2", ""),
+                m.get("begin_at", ""),
+                m.get("date_raw", ""),
+            )
+            dedup[key] = m
+        matches = list(dedup.values())
+
+        upcoming: list[dict[str, Any]] = []
+        live: list[dict[str, Any]] = []
+        completed: list[dict[str, Any]] = []
+
+        for m in matches:
+            finished = bool(m.get("finished"))
+            begin_at = m.get("begin_at")
+            begin_dt: datetime | None = None
+            if begin_at:
+                begin_dt = datetime.fromisoformat(begin_at)
+
+            if finished:
+                if self._include_finished_matches:
+                    completed.append(m)
+                continue
+
+            if begin_dt and begin_dt <= now <= (begin_dt + timedelta(hours=4)):
+                live.append(m)
+            else:
+                upcoming.append(m)
+
+        def _sort_key(match: dict[str, Any]) -> tuple[int, str, str]:
+            b = match.get("begin_at")
+            return (0 if b else 1, b or "", match.get("team1", ""))
+
+        upcoming.sort(key=_sort_key)
+        live.sort(key=_sort_key)
+        completed.sort(key=_sort_key, reverse=True)
+
+        return upcoming[:60], live[:40], completed[:60]
+
+    @staticmethod
+    def _match_pages_for_stage(active_stage: str) -> list[str]:
+        if active_stage == "Upcoming":
+            return [_STAGE_LQ_SUBPAGES["Stage 1"]]
+        if active_stage in _STAGE_LQ_SUBPAGES:
+            return [_STAGE_LQ_SUBPAGES[active_stage]]
+        return []
+
+    def _parse_matches_from_wikitext(
+        self,
+        wikitext: str,
+        stage_page: str,
+    ) -> list[dict[str, Any]]:
+        """Parse Matchlist fields from stage wikitext into match dicts."""
+        stage_name = stage_page.rsplit("/", 1)[-1].replace("_", " ")
+        matches: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+
+        for raw_line in wikitext.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("|"):
+                continue
+
+            op1_inline = re.search(r"\|opponent1\s*=\s*(.+?)(?=\|opponent2\s*=|$)", line, re.IGNORECASE)
+            op2_inline = re.search(r"\|opponent2\s*=\s*(.+?)(?=\|[a-zA-Z0-9_]+\s*=|$)", line, re.IGNORECASE)
+            date_inline = re.search(r"\|date\s*=\s*(.+?)(?=\|finished\s*=|$)", line, re.IGNORECASE)
+            fin_inline = re.search(r"\|finished\s*=\s*([^|]*)", line, re.IGNORECASE)
+
+            if op1_inline:
+                if current and (current.get("team1") or current.get("team2")):
+                    built = self._build_match_dict(current, stage_name)
+                    if built:
+                        matches.append(built)
+                current = {
+                    "opponent1": op1_inline.group(1).strip(),
+                    "opponent2": op2_inline.group(1).strip() if op2_inline else "",
+                    "date": date_inline.group(1).strip() if date_inline else "",
+                    "finished": fin_inline.group(1).strip() if fin_inline else "",
+                }
+                continue
+
+            if current is None:
+                continue
+
+            if line.lower().startswith("|opponent2=") and not current.get("opponent2"):
+                current["opponent2"] = line.split("=", 1)[1].strip()
+            elif line.lower().startswith("|date=") and not current.get("date"):
+                current["date"] = line.split("=", 1)[1].strip()
+            elif line.lower().startswith("|finished=") and not current.get("finished"):
+                current["finished"] = line.split("=", 1)[1].strip()
+
+        if current and (current.get("team1") or current.get("team2") or current.get("opponent1")):
+            built = self._build_match_dict(current, stage_name)
+            if built:
+                matches.append(built)
+
+        return matches
+
+    def _build_match_dict(self, raw: dict[str, Any], stage_name: str) -> dict[str, Any] | None:
+        team1 = self._resolve_team_name(raw.get("opponent1", ""))
+        team2 = self._resolve_team_name(raw.get("opponent2", ""))
+        if not team1 and not team2:
+            return None
+
+        date_raw = self._clean_wikitext_text(raw.get("date", ""))
+        begin_at = self._parse_liquipedia_date_to_iso(date_raw)
+        finished_val = str(raw.get("finished", "")).strip().lower()
+        finished = finished_val not in ("", "0", "no", "false")
+
+        return {
+            "stage": stage_name,
+            "team1": team1 or "TBD",
+            "team2": team2 or "TBD",
+            "begin_at": begin_at,
+            "date_raw": date_raw,
+            "finished": finished,
+        }
+
+    def _resolve_team_name(self, raw_opponent: str) -> str:
+        """Resolve TeamOpponent template aliases to dashboard team names."""
+        raw = raw_opponent.strip()
+        if not raw:
+            return ""
+
+        m = re.search(r"\{\{\s*TeamOpponent\s*\|\s*([^|}\s]+)", raw, re.IGNORECASE)
+        alias = m.group(1).strip() if m else raw
+        alias_norm = alias.lower().replace("_", " ").strip()
+
+        if alias_norm in _TEAM_ALIAS_MAP:
+            return _TEAM_ALIAS_MAP[alias_norm]
+
+        # Fallback: fuzzy match against known team names
+        alias_flat = alias_norm.replace(" ", "")
+        for team in _LQ_TEAM_SLUGS:
+            tn = team.lower()
+            if alias_norm == tn or alias_flat == tn.replace(" ", ""):
+                return team
+        return alias
+
+    @staticmethod
+    def _clean_wikitext_text(value: str) -> str:
+        text = value or ""
+        text = re.sub(r"\{\{\s*Abbr/CEST\s*\}\}", "CEST", text, flags=re.IGNORECASE)
+        text = re.sub(r"\{\{[^{}]*\}\}", "", text)
+        text = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]+)\]\]", r"\1", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _parse_liquipedia_date_to_iso(date_raw: str) -> str | None:
+        if not date_raw or "XX" in date_raw:
+            return None
+        cleaned = date_raw.replace("  ", " ").strip()
+        cleaned = cleaned.replace("CET", "CEST")
+
+        # Interpret CEST as UTC+02:00
+        if cleaned.endswith("CEST"):
+            base = cleaned[:-4].strip()
+            try:
+                dt = datetime.strptime(base, "%B %d, %Y - %H:%M")
+                return dt.replace(tzinfo=timezone(timedelta(hours=2))).isoformat()
+            except ValueError:
+                return None
+
+        try:
+            dt = datetime.strptime(cleaned, "%B %d, %Y - %H:%M")
+            return dt.replace(tzinfo=timezone(timedelta(hours=2))).isoformat()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _pick_next_match(upcoming_matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for m in upcoming_matches:
+            if m.get("begin_at"):
+                return m
+        return upcoming_matches[0] if upcoming_matches else None
+
+    @staticmethod
+    def _count_matches_today(
+        today: date,
+        upcoming_matches: list[dict[str, Any]],
+        live_matches: list[dict[str, Any]],
+        completed_matches: list[dict[str, Any]],
+    ) -> int:
+        matches = upcoming_matches + live_matches + completed_matches
+        count = 0
+        for m in matches:
+            b = m.get("begin_at")
+            if not b:
+                continue
+            try:
+                if datetime.fromisoformat(b).date() == today:
+                    count += 1
+            except ValueError:
+                continue
+        return count
 
     # ------------------------------------------------------------------ #
     #  Liquipedia                                                          #
