@@ -127,35 +127,68 @@ cards:
       {% for s in standings %}| {{ s.rank }} | **{{ s.team }}** | {{ s.record }} | {{ s.rd }} | {% if s.status == 'advancing' %}✅ Advancing{% elif s.status == 'eliminated' %}❌ Eliminated{% else %}🟡 Playing{% endif %} |
       {% endfor %}{% endif %}
 
-  # === SIGNALE + BRACKET ===
-  - type: horizontal-stack
+  # === SIGNALE + MATCH CENTER ===
+  - type: vertical-stack
     cards:
+      - type: horizontal-stack
+        cards:
+          - type: markdown
+            title: "📡 Live Score-Signale"
+            content: |
+              {%- set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([], true) -%}
+              {%- set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') -%}
+              {% if changed %}**🔔 Neue Ergebnisse erkannt!**
+              {% endif %}{% if lines | count == 0 %}
+              _Keine Signale · Turnier beginnt 2. Juni 2026_
+              {% else %}
+              **{{ lines | count }} Signale:**
+              {% for line in lines[:20] %}- {{ line }}
+              {% endfor %}{% if lines | count > 20 %}_...+{{ lines | count - 20 }} weitere_{% endif %}
+              {% endif %}
+          - type: markdown
+            title: "🏆 Bracket / Playoff-Signale"
+            content: |
+              {%- set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([], true) -%}
+              {% if bracket | count == 0 %}
+              _Keine Bracket-Signale (Playoffs: 18.–21. Juni)_
+
+              **Playoff-Format:** QF (Bo3) → SF (Bo3) → Grand Final (Bo5)
+
+              _8 Teams · Alle stehen nach Stage 3 (15. Juni) fest_
+              {% else %}
+              {% for line in bracket %}- {{ line }}
+              {% endfor %}{% endif %}
+
       - type: markdown
-        title: "📡 Live Score-Signale"
+        title: "🎮 Match Center"
         content: |
-          {%- set lines = state_attr('sensor.iem_cologne_score_signals', 'score_signal_lines') | default([], true) -%}
-          {%- set changed = state_attr('sensor.iem_cologne_score_signals', 'score_change_detected') -%}
-          {% if changed %}**🔔 Neue Ergebnisse erkannt!**
-          {% endif %}{% if lines | count == 0 %}
-          _Keine Signale · Turnier beginnt 2. Juni 2026_
+          {%- set next_match = state_attr('sensor.iem_cologne_all_data', 'next_match') -%}
+          {%- set live = state_attr('sensor.iem_cologne_all_data', 'live_matches') | default([], true) -%}
+          {%- set upcoming = state_attr('sensor.iem_cologne_all_data', 'upcoming_matches') | default([], true) -%}
+          {%- set completed = state_attr('sensor.iem_cologne_all_data', 'completed_matches') | default([], true) -%}
+
+          **Live:** {{ live | count }} · **Upcoming:** {{ upcoming | count }} · **Completed:** {{ completed | count }}
+
+          {% if next_match %}
+          **Nächstes Match:** {{ next_match.get('team1', 'TBD') }} vs {{ next_match.get('team2', 'TBD') }}
+          {% if next_match.get('begin_at') %}Beginn: `{{ next_match.get('begin_at') }}`{% elif next_match.get('date_raw') %}Zeit: {{ next_match.get('date_raw') }}{% endif %}
           {% else %}
-          **{{ lines | count }} Signale:**
-          {% for line in lines[:20] %}- {{ line }}
-          {% endfor %}{% if lines | count > 20 %}_...+{{ lines | count - 20 }} weitere_{% endif %}
+          _Nächstes Match noch nicht bekannt._
           {% endif %}
-      - type: markdown
-        title: "🏆 Bracket / Playoff-Signale"
-        content: |
-          {%- set bracket = state_attr('sensor.iem_cologne_participants', 'bracket_lines') | default([], true) -%}
-          {% if bracket | count == 0 %}
-          _Keine Bracket-Signale (Playoffs: 18.–21. Juni)_
 
-          **Playoff-Format:** QF (Bo3) → SF (Bo3) → Grand Final (Bo5)
+          {% if live | count > 0 %}
+          **Live jetzt:**
+          {% for m in live[:6] %}- 🔴 {{ m.get('team1', 'TBD') }} vs {{ m.get('team2', 'TBD') }}
+          {% endfor %}
+          {% endif %}
 
-          _8 Teams · Alle stehen nach Stage 3 (15. Juni) fest_
+          {% if upcoming | count > 0 %}
+          **Nächste Paarungen:**
+          {% for m in upcoming[:10] %}- 🟢 {{ m.get('team1', 'TBD') }} vs {{ m.get('team2', 'TBD') }}{% if m.get('begin_at') %} · `{{ m.get('begin_at') }}`{% elif m.get('date_raw') %} · {{ m.get('date_raw') }}{% endif %}
+          {% endfor %}
           {% else %}
-          {% for line in bracket %}- {{ line }}
-          {% endfor %}{% endif %}
+          _Keine Upcoming-Matches in den Daten._
+          {% endif %}
 
   # === TEAM ROSTERS ===
   - type: markdown
