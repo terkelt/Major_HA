@@ -441,7 +441,7 @@ class IEMCologneApiClient:
             fin_inline = re.search(r"\|finished\s*=\s*([^|]*)", line, re.IGNORECASE)
 
             if op1_inline:
-                if current and (current.get("team1") or current.get("team2")):
+                if current and (current.get("opponent1") or current.get("opponent2")):
                     built = self._build_match_dict(current, stage_name)
                     if built:
                         matches.append(built)
@@ -457,11 +457,11 @@ class IEMCologneApiClient:
                 continue
 
             if line.lower().startswith("|opponent2=") and not current.get("opponent2"):
-                current["opponent2"] = line.split("=", 1)[1].strip()
+                current["opponent2"] = self._extract_field_value(line)
             elif line.lower().startswith("|date=") and not current.get("date"):
-                current["date"] = line.split("=", 1)[1].strip()
+                current["date"] = self._extract_field_value(line)
             elif line.lower().startswith("|finished=") and not current.get("finished"):
-                current["finished"] = line.split("=", 1)[1].strip()
+                current["finished"] = self._extract_field_value(line)
 
         if current and (current.get("team1") or current.get("team2") or current.get("opponent1")):
             built = self._build_match_dict(current, stage_name)
@@ -496,6 +496,11 @@ class IEMCologneApiClient:
         if not raw:
             return ""
 
+        # Empty TeamOpponent template should be treated as unknown/TBD.
+        # Example: {{TeamOpponent|}}
+        if re.search(r"\{\{\s*TeamOpponent\s*\|\s*\}\}", raw, re.IGNORECASE):
+            return ""
+
         m = re.search(r"\{\{\s*TeamOpponent\s*\|\s*([^|}\s]+)", raw, re.IGNORECASE)
         alias = m.group(1).strip() if m else raw
         alias_norm = alias.lower().replace("_", " ").strip()
@@ -510,6 +515,14 @@ class IEMCologneApiClient:
             if alias_norm == tn or alias_flat == tn.replace(" ", ""):
                 return team
         return alias
+
+    @staticmethod
+    def _extract_field_value(line: str) -> str:
+        """Extract '|key=value' field value, truncating at the next inline '|key=' part."""
+        value = line.split("=", 1)[1].strip() if "=" in line else ""
+        if "|" in value:
+            value = value.split("|", 1)[0].strip()
+        return value
 
     @staticmethod
     def _clean_wikitext_text(value: str) -> str:
