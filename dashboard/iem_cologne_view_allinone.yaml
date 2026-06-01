@@ -171,7 +171,7 @@ cards:
 
           {% if next_match %}
           **Nächstes Match:** {{ next_match.get('team1', 'TBD') }} vs {{ next_match.get('team2', 'TBD') }}
-          {% if next_match.get('begin_at') %}Beginn: `{{ next_match.get('begin_at') }}`{% elif next_match.get('date_raw') %}Zeit: {{ next_match.get('date_raw') }}{% endif %}
+          {% if next_match.get('begin_at') %}Beginn: `{{ as_timestamp(next_match.get('begin_at')) | timestamp_custom('%d.%m %H:%M', true) }}`{% elif next_match.get('date_raw') %}Zeit: {{ next_match.get('date_raw') }}{% endif %}
           {% else %}
           _Nächstes Match noch nicht bekannt._
           {% endif %}
@@ -184,7 +184,7 @@ cards:
 
           {% if upcoming | count > 0 %}
           **Nächste Paarungen:**
-          {% for m in upcoming[:10] %}- 🟢 {{ m.get('team1', 'TBD') }} vs {{ m.get('team2', 'TBD') }}{% if m.get('begin_at') %} · `{{ m.get('begin_at') }}`{% elif m.get('date_raw') %} · {{ m.get('date_raw') }}{% endif %}
+          {% for m in upcoming[:10] %}- 🟢 {{ m.get('team1', 'TBD') }} vs {{ m.get('team2', 'TBD') }}{% if m.get('begin_at') %} · `{{ as_timestamp(m.get('begin_at')) | timestamp_custom('%d.%m %H:%M', true) }}`{% elif m.get('date_raw') %} · {{ m.get('date_raw') }}{% endif %}
           {% endfor %}
           {% else %}
           _Keine Upcoming-Matches in den Daten._
